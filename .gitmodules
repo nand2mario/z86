@@ -1,0 +1,3 @@
+[submodule "tests/jsoncons"]
+	path = tests/jsoncons
+	url = https://github.com/danielaparker/jsoncons.git
