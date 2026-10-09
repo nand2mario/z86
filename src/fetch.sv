@@ -143,6 +143,14 @@ always @* begin
             $display("Unknown instruction layout %h %h", buffer[ptr], buffer[(ptr+1)%32]);
         end
     endcase
+    // ENTER is Iw,Ib: 4 bytes. The LUT only has an imm16 slot, so the nesting
+    // byte would otherwise be executed as the next opcode. Ib is parked in
+    // disp[23:16] for READ ENTER_IB; Iw stays in imm.
+    if (opcode_byte == 8'hC8 && !is_0f_escape) begin
+        len = 4;
+        imm_t = {buffer[(param_base+2)%32], buffer[(param_base+1)%32]};
+        disp_t = {8'h00, buffer[(param_base+3)%32], 16'h0000};
+    end
     len += is_0f_escape;
     ptr_end = ptr + len;
 end

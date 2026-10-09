@@ -458,6 +458,11 @@ reg [15:0] tmp_lo, tmp_hi, tmp_flags;
 reg [15:0] tmp_lo_reg, tmp_hi_reg, tmp_flags_reg;
 reg read_hi, read_lo, read_flags;    // reading into tmp_lo / tmp_hi
 reg pop_reg, pop_next;               // pop memory read in progress
+reg        link_phase, link_next;   // ENTER static-link read in progress
+reg        link_have;               // link_bp holds the walking BP
+reg [15:0] link_bp;
+reg        link_capture;
+reg [15:0] link_bp_din;
 
 // 3 registers for microcode: tmp_lo / tmp_hi / tmp_flags
 // tmp_lo defaults to E value / effective address, tmp_hi defaults to G value 
@@ -501,6 +506,9 @@ always_comb begin
         MC_LOAD: begin
             reg1_raddr = mc_cur.arg[0] ? R_DI : R_SI;
         end
+        MC_PUSH_LINK: begin
+            reg1_raddr = R_BP;
+        end
         MC_STORE: begin
             reg1_raddr = R_DI;
         end
@@ -532,6 +540,9 @@ always_comb begin
     logic [15:0] val = 'x;
 
     mc_wait = 0;
+    link_next = link_phase;
+    link_capture = 1'b0;
+    link_bp_din = link_bp;
 
     // defaults
     mc_data = 16'h0000;
@@ -1185,6 +1196,41 @@ always_comb begin
             mc_wait = 1'b1;          // stop mc_pc from advancing
         end
 
+        //==================================================================
+        //  MC_PUSH_LINK  – ENTER static link
+        //    Walk BP locally (BP-2 each copy) and push the word at SS:BP.
+        //    Two cycles, same shape as POP. tmp_lo (the frame) is left alone,
+        //    and architectural BP is written later by WR_REG.
+        //==================================================================
+        MC_PUSH_LINK: begin
+            logic [15:0] bp_now;
+            logic [15:0] next_bp;
+            mc_wait = 1'b1;
+            bp_now = link_have ? link_bp : reg1_rdata;
+            next_bp = bp_now - 16'd2;
+            if (!link_phase) begin
+                if ((~wr_valid | wr_ready) && rd_ready && ~br_taken) begin
+                    link_next = 1'b1;
+                    link_capture = 1'b1;
+                    link_bp_din = next_bp;
+                    rd = 1'b1;
+                    rd_addr = {seg_SS, 4'b0} + next_bp;
+                end
+            end else if (rd_ready) begin
+                link_next = 1'b0;
+                mc_wait = 1'b0;
+                new_sp = this_sp - 16'd2;
+                mc_valid = 1'b1;
+                mc_wr = 1'b1;
+                mc_wr_addr = {seg_SS, 4'b0} + new_sp;
+                mc_wr_data = rd_data;
+                mc_wr_word = 1'b1;
+                mc_reg2_valid = 1'b1;
+                mc_reg2 = R_SP;
+                mc_data2 = new_sp;
+            end
+        end
+
         default: ;
 
         endcase 
@@ -1192,6 +1238,7 @@ always_comb begin
         // Gate wtth ex_valid
         if (~ex_valid) begin
             pop_next = 0;
+            link_next = 0;
         end
 
         // Gate with mc_active and br_taken
@@ -1238,6 +1285,16 @@ always_ff @(posedge clk) begin
     tmp_lo_reg <= tmp_lo;
     tmp_hi_reg <= tmp_hi;
     pop_reg <= pop_next;
+    if (reset || ~ex_valid) begin
+        link_phase <= 1'b0;
+        link_have <= 1'b0;
+    end else begin
+        link_phase <= link_next;
+        if (link_capture) begin
+            link_have <= 1'b1;
+            link_bp <= link_bp_din;
+        end
+    end
 
     tmp_flags_reg <= tmp_flags;
     if (rd_ready) begin           // Data is available
@@ -1264,12 +1321,13 @@ always_ff @(posedge clk) begin
     end
 
     if (mc_active && mc_cur.op == MC_READ && ~mc_cur.arg[3]) begin
-        tmp_lo_reg <= reg1_rdata;
+        // READ SP must see the shadow, which has not been written back yet.
+        tmp_lo_reg <= (mc_cur.arg[2:0] == R_SP) ? this_sp : reg1_rdata;
     end
 
-    // READ ENTER_IB -> tmp_hi
+    // READ ENTER_IB -> tmp_hi. 286 uses the low 5 bits of Ib as the level.
     if (mc_active && mc_cur.op == MC_READ && mc_cur.arg[3]) begin
-        tmp_hi_reg <= ex_disp[23:16];
+        tmp_hi_reg <= {11'b0, ex_disp[20:16]};
     end
 
     // DEC TMP_HI

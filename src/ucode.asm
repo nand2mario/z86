@@ -603,21 +603,29 @@
 ;          |                           |    ← SP after ENTER
 ;          +---------------------------+  
 
+; ENTER Iw,Ib. Level is Ib & 1Fh.
+;   PUSH BP
+;   frame = SP
+;   for i in 1 .. level-1:  BP -= 2; PUSH word [SS:BP]
+;   if level > 0: PUSH frame
+;   BP = frame
+;   SP -= Iw
+; The nesting byte is packed into disp[23:16] by fetch. CX is not used.
 @ENTER                       ; C8   ENTER Iw,Ib
-    PUSH     BP
-    READ     ENTER_IB        ; tmp_hi ← Ib
-    READ     SP              ; tmp_lo ← SP
-    WR_REG   BP              ; BP ← SP
-
-; TODO: push actual static links. Now links to current frame is pushed.
-;LOOP
-    TESTZX   TMP_HI          
-    JT       3
-    PUSH     BP
-    DEC      TMP_HI
-    J        -5              ; LOOP
-
-    ADJSP    SUB_IW          ; SP -= Iw
+    PUSH     BP              ; 0
+    READ     SP              ; 1  tmp_lo = frame (SP after the push)
+    READ     ENTER_IB        ; 2  tmp_hi = level & 1Fh
+    TESTZX   TMP_HI          ; 3
+    JT       7               ; 4  level 0 → WR_REG BP (pc 12)
+    DEC      TMP_HI          ; 5  copies = level-1
+    TESTZX   TMP_HI          ; 6
+    JT       3               ; 7  no copies → PUSH frame (pc 11)
+    PUSH_LINK                ; 8  BP -= 2; PUSH [SS:BP]
+    DEC      TMP_HI          ; 9
+    J        -5              ; 10 back to TESTZX (pc 6)
+    PUSH     TMP_LO          ; 11 push frame
+    WR_REG   BP              ; 12 BP = frame
+    ADJSP    SUB_IW          ; 13 SP -= Iw
     .end
 
 @LEAVE                       ; C9

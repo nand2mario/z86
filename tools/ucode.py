@@ -38,6 +38,7 @@ OPCODES = {           # 6-bit values must match execute.sv
     'IN'        : 28,
     'OUT'       : 29,
     'HALT'      : 30,
+    'PUSH_LINK' : 31,   # ENTER: BP-2, push word [SS:BP]
 }
 
 UINST_FMT = "    `U({op:2d},4'h{arg:1x},{stop}){comma} // {cmt}"
