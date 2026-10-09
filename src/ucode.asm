@@ -585,6 +585,46 @@
     .end
 
 
+; REP-prefixed INS/OUTS. The non-REP forms existed but had no loop, so a
+; REP prefix executed the instruction once and left CX unchanged. Structure
+; mirrors @REP_MOVSB: TESTZX / JT to end / body / DEC CX / J back to TESTZX.
+@REP_INSB
+    TESTZX
+    JT        4
+    IN        BYTE
+    STORE     0b0110
+    DEC       CX
+    J         -6
+    .end
+
+@REP_INSW
+    TESTZX
+    JT        4
+    IN        WORD
+    STORE     0b1110
+    DEC       CX
+    J         -6
+    .end
+
+@REP_OUTSB
+    TESTZX
+    JT        4
+    LOAD      0b0110
+    OUT       BYTE
+    DEC       CX
+    J         -6
+    .end
+
+@REP_OUTSW
+    TESTZX
+    JT        4
+    LOAD      0b1110
+    OUT       WORD
+    DEC       CX
+    J         -6
+    .end
+
+
 ; ─────────── C8 / C9  ENTER / LEAVE ───────────────────────────────
 ; Stack frame layout after ENTER Iw,2
 ;                                 caller's frame

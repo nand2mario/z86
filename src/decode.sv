@@ -291,6 +291,10 @@ always_comb begin
                                                         : UENTRY_REPE_SCASB;
             8'hAF: id_ucode_entry = id_prefix[PREFIX_REPNE_REPNZ] ? UENTRY_REPNE_SCASW
                                                         : UENTRY_REPE_SCASW;
+            8'h6C: id_ucode_entry = UENTRY_REP_INSB;
+            8'h6D: id_ucode_entry = UENTRY_REP_INSW;
+            8'h6E: id_ucode_entry = UENTRY_REP_OUTSB;
+            8'h6F: id_ucode_entry = UENTRY_REP_OUTSW;
             default:;
         endcase
     end
