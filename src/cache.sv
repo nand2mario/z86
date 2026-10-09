@@ -57,7 +57,19 @@ module cache(
     input       [19:0] dbg_mem_addr,
     input       [7:0]  dbg_mem_din,
     input              dbg_mem_rd,
-    output reg [7:0]   dbg_mem_dout
+    output reg [7:0]   dbg_mem_dout,
+
+    // DMA. A pulse on dma_read or dma_write is latched and runs after the
+    // CPU's own fetch, write, and read. dma_waitrequest is high from the
+    // pulse until the transfer finishes.
+    input       [19:0] dma_address,
+    input              dma_16bit,
+    input              dma_write,
+    input       [15:0] dma_writedata,
+    input              dma_read,
+    output reg  [15:0] dma_readdata,
+    output reg         dma_readdatavalid,
+    output             dma_waitrequest
 );
 
 // Pending requests as read request is pulse
@@ -79,8 +91,21 @@ localparam MEM_READING = 2;
 localparam MEM_READING2 = 3;
 localparam MEM_WRITING = 4;
 localparam MEM_WRITING2 = 5;
+localparam MEM_DMA_W = 6;
+localparam MEM_DMA_R = 7;
 
 logic wr_valid_r;
+
+wire        dma_req = dma_read | dma_write;
+reg         dma_req_d;
+reg         dma_go;
+reg         dma_is_write;
+reg         dma_phase;
+reg [19:0]  dma_addr_l;
+reg         dma_word_l;
+reg [15:0]  dma_wdata_l;
+reg [1:0]   dma_off;
+assign dma_waitrequest = dma_go | (dma_req & ~dma_req_d);
 
 // Output signals
 always_comb begin
@@ -133,7 +158,40 @@ always_comb begin
                 avm_read = 1;
                 avm_address = rd_a;
                 avm_byteenable = (rd_word ? 4'b11 : 4'b01) << rd_a[1:0];
+            end else if (dma_go && !dma_phase) begin
+                avm_address = dma_addr_l;
+                if (dma_is_write) begin
+                    avm_write = 1;
+                    casez ({dma_word_l, dma_addr_l[1:0]})
+                    3'b0??: begin
+                        avm_writedata = {4{dma_wdata_l[7:0]}};
+                        avm_byteenable = 4'b0001 << dma_addr_l[1:0];
+                    end
+                    3'b10?, 3'b110: begin
+                        avm_writedata = dma_wdata_l << (8*dma_addr_l[1:0]);
+                        avm_byteenable = 4'b11 << dma_addr_l[1:0];
+                    end
+                    3'b111: begin
+                        avm_writedata = dma_wdata_l[7:0] << 24;
+                        avm_byteenable = 4'b1000;
+                    end
+                    endcase
+                end else begin
+                    avm_read = 1;
+                    avm_byteenable = (dma_word_l ? 4'b11 : 4'b01) << dma_addr_l[1:0];
+                end
             end
+        end
+        if (mem_state == MEM_DMA_W && !dma_phase && ~avm_waitrequest && dma_word_l && dma_off == 2'd3) begin
+            avm_write = 1;
+            avm_address = dma_addr_l + 20'd4;
+            avm_writedata = dma_wdata_l[15:8];
+            avm_byteenable = 4'd1;
+        end
+        if (mem_state == MEM_DMA_R && !dma_phase && avm_readdatavalid && dma_word_l && dma_off == 2'd3) begin
+            avm_read = 1;
+            avm_address = dma_addr_l + 20'd4;
+            avm_byteenable = 4'b1;
         end
         if (mem_state == MEM_READING & avm_readdatavalid & rd_word & rd_offset == 2'd3) begin
             avm_read = 1;
@@ -180,7 +238,21 @@ always @(posedge clk) begin
     if (reset) begin
         mem_state <= MEM_IDLE;
         io_state <= IO_IDLE;
+        dma_req_d <= 1'b0;
+        dma_go <= 1'b0;
+        dma_phase <= 1'b0;
+        dma_readdatavalid <= 1'b0;
     end else begin
+        dma_req_d <= dma_req;
+        dma_readdatavalid <= 1'b0;
+        if (!dma_go && dma_req && !dma_req_d) begin
+            dma_go <= 1'b1;
+            dma_is_write <= dma_write;
+            dma_addr_l <= dma_address;
+            dma_word_l <= dma_16bit;
+            dma_wdata_l <= dma_writedata;
+            dma_phase <= 1'b0;
+        end
         if (rd) begin
             rd_pending <= 1;
             rd_io_pending <= rd_io;
@@ -200,6 +272,10 @@ always @(posedge clk) begin
                 rd_pending <= 0;
                 mem_state <= MEM_READING;
                 rd_offset <= rd_pending ? rd_addr_pending[1:0] : rd_addr[1:0];
+            end else if (dma_go) begin
+                dma_off <= dma_addr_l[1:0];
+                dma_phase <= 1'b0;
+                mem_state <= dma_is_write ? MEM_DMA_W : MEM_DMA_R;
             end
         end
         MEM_LOADING: begin
@@ -247,6 +323,38 @@ always @(posedge clk) begin
             if (~avm_waitrequest) begin
                 mem_state <= MEM_IDLE;
                 wr_ready <= 1;
+            end
+        end
+        MEM_DMA_W: begin
+            if (~avm_waitrequest) begin
+                if (!dma_phase && dma_word_l && dma_off == 2'd3) begin
+                    dma_phase <= 1'b1;
+                end else begin
+                    dma_go <= 1'b0;
+                    dma_phase <= 1'b0;
+                    mem_state <= MEM_IDLE;
+                end
+            end
+        end
+        MEM_DMA_R: begin
+            if (avm_readdatavalid) begin
+                if (!dma_phase) begin
+                    dma_readdata[7:0] <= avm_readdata[8*dma_off +: 8];
+                    if (dma_word_l && dma_off == 2'd3) begin
+                        dma_phase <= 1'b1;
+                    end else begin
+                        dma_readdata[15:8] <= avm_readdata[8*dma_off + 8 +: 8];
+                        dma_readdatavalid <= 1'b1;
+                        dma_go <= 1'b0;
+                        mem_state <= MEM_IDLE;
+                    end
+                end else begin
+                    dma_readdata[15:8] <= avm_readdata[7:0];
+                    dma_readdatavalid <= 1'b1;
+                    dma_go <= 1'b0;
+                    dma_phase <= 1'b0;
+                    mem_state <= MEM_IDLE;
+                end
             end
         end
         default: ;

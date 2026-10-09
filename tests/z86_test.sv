@@ -54,6 +54,13 @@ wire        dma_waitrequest;
 wire        dma_write;
 wire [15:0] dma_writedata;
 
+// Held idle so the existing suites do not see an X on the DMA request.
+assign dma_read = 1'b0;
+assign dma_write = 1'b0;
+assign dma_16bit = 1'b0;
+assign dma_address = 20'b0;
+assign dma_writedata = 16'b0;
+
 sdram_sim ram (
     .clk               (clk_sys),
     .reset             (reset),

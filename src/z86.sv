@@ -247,7 +247,16 @@ cache u_cache(
     .dbg_mem_addr       (dbg_mem_addr), 
     .dbg_mem_din        (dbg_mem_din), 
     .dbg_mem_rd         (dbg_mem_rd), 
-    .dbg_mem_dout       (dbg_mem_dout)
+    .dbg_mem_dout       (dbg_mem_dout),
+
+    .dma_address        (dma_address),
+    .dma_16bit          (dma_16bit),
+    .dma_write          (dma_write),
+    .dma_writedata      (dma_writedata),
+    .dma_read           (dma_read),
+    .dma_readdata       (dma_readdata),
+    .dma_readdatavalid  (dma_readdatavalid),
+    .dma_waitrequest    (dma_waitrequest)
 );
 
 // register file
