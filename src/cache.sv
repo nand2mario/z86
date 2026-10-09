@@ -66,6 +66,7 @@ logic rd_pending, rd_io_pending, rd_word_pending;
 
 logic [1:0] ld_offset;
 logic [1:0] rd_offset;
+reg        rd2_hold;
 
 // FSM for I/O and memory
 logic [1:0] io_state; 
@@ -135,7 +136,7 @@ always_comb begin
                 avm_byteenable = (rd_word ? 4'b11 : 4'b01) << rd_a[1:0];
             end
         end
-        if (mem_state == MEM_READING & avm_readdatavalid & rd_word & rd_offset == 2'd3) begin
+        if ((mem_state == MEM_READING & avm_readdatavalid & rd_word & rd_offset == 2'd3) || rd2_hold) begin
             avm_read = 1;
             avm_address = rd_addr_pending + 20'd4;
             avm_byteenable = 4'b1;
@@ -180,6 +181,7 @@ always @(posedge clk) begin
     if (reset) begin
         mem_state <= MEM_IDLE;
         io_state <= IO_IDLE;
+        rd2_hold <= 1'b0;
     end else begin
         if (rd) begin
             rd_pending <= 1;
@@ -192,14 +194,19 @@ always @(posedge clk) begin
         // Memory FSM
         case (mem_state)
         MEM_IDLE: begin
+            // Stay here, with the request still asserted, until the slave
+            // accepts it. Leaving IDLE on the request cycle drops a pulse
+            // that waitrequest never gets to stall.
             if (ld_req ^ ld_ack) begin
-                mem_state <= MEM_LOADING;
+                if (!avm_waitrequest) mem_state <= MEM_LOADING;
             end else if (wr_valid & ~wr_io & ~wr_ready) begin
-                mem_state <= MEM_WRITING;
+                if (!avm_waitrequest) mem_state <= MEM_WRITING;
             end else if (rd & ~rd_io | rd_pending & ~rd_io_pending) begin
-                rd_pending <= 0;
-                mem_state <= MEM_READING;
-                rd_offset <= rd_pending ? rd_addr_pending[1:0] : rd_addr[1:0];
+                if (!avm_waitrequest) begin
+                    rd_pending <= 0;
+                    mem_state <= MEM_READING;
+                    rd_offset <= rd_pending ? rd_addr_pending[1:0] : rd_addr[1:0];
+                end
             end
         end
         MEM_LOADING: begin
@@ -213,11 +220,16 @@ always @(posedge clk) begin
             end
         end
         MEM_READING: begin
-            if (avm_readdatavalid) begin
+            if (rd2_hold && !avm_waitrequest) begin
+                rd2_hold <= 1'b0;
+                mem_state <= MEM_READING2;
+            end else if (avm_readdatavalid) begin
                 rd_data[7:0] <= avm_readdata[8*rd_offset +: 8];
                 if (rd_word & rd_offset == 2'd3) begin
-                    // need a second read to get the second byte
-                    mem_state <= MEM_READING2;
+                    if (!avm_waitrequest)
+                        mem_state <= MEM_READING2;
+                    else
+                        rd2_hold <= 1'b1;
                 end else begin
                     rd_data[15:8] <= avm_readdata[8*rd_offset + 8 +: 8];
                     rd_ready <= 1;
@@ -226,6 +238,7 @@ always @(posedge clk) begin
             end
         end
         MEM_READING2: begin
+            rd2_hold <= 1'b0;
             if (avm_readdatavalid) begin
                 rd_data[15:8] <= avm_readdata[7:0];
                 rd_ready <= 1;
