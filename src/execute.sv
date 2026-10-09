@@ -1222,6 +1222,14 @@ always_ff @(posedge clk) begin
         if (mc_active && ~br_taken && mc_reg2_valid && mc_reg2==R_SP) begin  // capture shadow SP written by µ-code
             sp_fw <= mc_data2;     
             sp_fw_valid <= 1'b1;
+        end else if (mc_active && ~br_taken && mc_reg_valid && mc_reg==R_SP) begin
+            // ...and the same for a PORT-1 SP write. `WR_REG SP` uses port 1,
+            // so it was not shadowed. Without this, a micro-op that both sets SP
+            // (WR_REG) and then adjusts it (POP) computed the adjustment from the
+            // stale architectural SP -- which is why LEAVE's `SP <- BP` was lost
+            // and the following POP used the pre-LEAVE SP.
+            sp_fw <= mc_data;
+            sp_fw_valid <= 1'b1;
         end else if (ex_ucode_valid) begin
             if (reg2_raddr==R_SP & ~sp_fw_valid) begin          // enter microcode → capture current architectural SP
                 sp_fw       <= reg2_rdata;
