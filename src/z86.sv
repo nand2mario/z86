@@ -121,6 +121,7 @@ wire id_done;
 wire [3:0] id_len;
 wire [15:0] id_ip_after;
 wire [6:0] id_prefix;
+wire [1:0] id_seg_last;
 wire [7:0] id_op;
 wire [7:0] id_modrm;
 wire [31:0] id_disp;
@@ -296,6 +297,7 @@ fetch u_fetch_decode1 (
     .id_len             (id_len), 
     .id_ip_after        (id_ip_after), 
     .id_prefix          (id_prefix), 
+    .id_seg_last        (id_seg_last),
     .id_opcode          (id_op), 
     .id_modrm_valid     (id_modrm_valid), 
     .id_modrm           (id_modrm), 
@@ -322,6 +324,7 @@ decode u_decode2 (
     .id_len             (id_len), 
     .id_ip_after        (id_ip_after), 
     .id_prefix          (id_prefix), 
+    .id_seg_last        (id_seg_last),
     .id_opcode          (id_op), 
     .id_modrm_valid     (id_modrm_valid), 
     .id_modrm           (id_modrm), 

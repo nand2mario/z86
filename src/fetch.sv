@@ -30,6 +30,7 @@ module fetch (
     output reg        id_valid,      // pulse for instruction output
     output reg [3:0]  id_len,
     output reg [6:0]  id_prefix,     // the fetched instruction fields, PREFIX_* in z486_package.sv
+    output reg [1:0]  id_seg_last,   // last segment override: 0 ES, 1 CS, 2 SS, 3 DS
     output reg [7:0]  id_opcode,
     output reg        id_modrm_valid,
     output reg [7:0]  id_modrm,
@@ -76,6 +77,7 @@ reg        loading_drop;      // drop the cache request (the buffer is flushed)
 reg [3:0]  len;               // instruction length not including prefixes
 reg [6:0]  prefix;
 reg [1:0]  prefix_len;
+reg [1:0]  seg_last;
 wire       w = buffer[ptr][0];
 reg        is_modrm, is_disp8, is_disp16, is_disp32, is_imm8, is_imm16;
 reg [17:0] regctrl;
@@ -166,6 +168,7 @@ always @(posedge clk) begin
         id_valid <= 0;
         id_inst <= 0;
         loading_drop <= 0;
+        seg_last <= 2'd0;
     end else begin
         ld_ack_r <= ld_ack;
         if (ld_ack ^ ld_ack_r) begin  // receive data from cache
@@ -189,6 +192,7 @@ always @(posedge clk) begin
                 ip <= br_new_ip;                            
                 ptr <= br_target[3:0];
                 prefix_len <= 0;
+                seg_last <= 2'd0;
                 if (ld_req != ld_ack)                   // drop any ongoing cache request
                     loading_drop <= 1;
             end else begin
@@ -202,6 +206,7 @@ always @(posedge clk) begin
                 end
                 ptr <= ptr_next;
                 ip <= br_new_ip;
+                seg_last <= 2'd0;
             end
             // id_valid <= 0;                              // pipeline flush
         end else begin
@@ -224,6 +229,13 @@ always @(posedge clk) begin
         if (!br_taken && buf_valid[ptr[4]]) begin            // consume bytes 
             if (is_prefix(buffer[ptr])) begin                // an extra cycle for prefix
                 prefix[prefix_bit(buffer[ptr])] <= 1;
+                case (buffer[ptr])
+                8'h26: seg_last <= 2'd0;   // ES
+                8'h2E: seg_last <= 2'd1;   // CS
+                8'h36: seg_last <= 2'd2;   // SS
+                8'h3E: seg_last <= 2'd3;   // DS
+                default: ;
+                endcase
                 ptr <= ptr + 1;
                 ip <= ip + 1;
                 prefix_len <= prefix_len + 1;
@@ -306,8 +318,10 @@ always @(posedge clk) begin
                 id_imm16 <= is_imm16;
 
                 id_prefix <= prefix;
+                id_seg_last <= seg_last;
                 prefix <= 0;
                 prefix_len <= 0;
+                seg_last <= 2'd0;
 
                 // if done with the current 16 bytes, invalidate it so we'll fetch another
                 if (ptr[4] != ptr_end[4]) begin   

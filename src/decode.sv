@@ -15,6 +15,7 @@ module decode (
     input      [3:0]  id_len,
     input      [15:0] id_ip_after,      // IP after this instruction
     input      [6:0]  id_prefix,        // the fetched instruction fields, PREFIX_* in z486_package.sv
+    input      [1:0]  id_seg_last,      // last segment-override prefix
     input      [7:0]  id_opcode,
     input             id_modrm_valid,
     input      [7:0]  id_modrm,
@@ -487,15 +488,14 @@ end
 logic [1:0] seg_sel;
 always_comb begin
     if (seg_ovr) begin
-        id_e_segment =
-            seg_ovr_es ? seg_ES :
-            seg_ovr_cs ? seg_CS :
-            seg_ovr_ss ? seg_SS :
-                         seg_DS;   // explicit DS override (3Eh)
-        seg_sel = seg_ovr_es ? 2'd0 :
-                  seg_ovr_cs ? 2'd1 :
-                  seg_ovr_ss ? 2'd2 :
-                               2'd3;
+        // Last prefix wins. A single override has one value, so this
+        // matches the old priority for that case. 0=ES, 1=CS, 2=SS, 3=DS.
+        case (id_seg_last)
+        2'd0: begin id_e_segment = seg_ES; seg_sel = 2'd0; end
+        2'd1: begin id_e_segment = seg_CS; seg_sel = 2'd1; end
+        2'd2: begin id_e_segment = seg_SS; seg_sel = 2'd2; end
+        default: begin id_e_segment = seg_DS; seg_sel = 2'd3; end
+        endcase
         if (DEBUG) $display("Segment override ES=%x, CS=%x, SS=%x", seg_ovr_es, seg_ovr_cs, seg_ovr_ss);
     end else if (ea_uses_bp) begin
         id_e_segment = seg_SS;
