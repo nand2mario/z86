@@ -168,6 +168,7 @@ end
 // `mc_active` - micro-op is allowed to execute when write-back is ready and memory is ready.
 wire        mc_active = ex_valid & rd_ready & (~wr_valid | wr_ready) & ~div_busy;
 reg         mc_wait;                 // do not advance to next micro-op
+logic       mc_gp;                   // word access at offset FFFFh: vector to #GP
 
 // microcode output
 reg         mc_valid;
@@ -209,6 +210,8 @@ always_ff @(posedge clk) begin
             mc_pc_next = 8'd0;
         else if (mc_branch_taken)                    // conditional branch
             mc_pc_next = mc_pc + 9'd1 + mc_branch_rel;
+        else if (mc_gp)
+            mc_pc_next = UENTRY_GP;
         else                                         // fall-through
             mc_pc_next = mc_pc + 9'd1;
     end
@@ -532,6 +535,7 @@ always_comb begin
     logic [15:0] val = 'x;
 
     mc_wait = 0;
+    mc_gp = 0;
 
     // defaults
     mc_data = 16'h0000;
@@ -711,6 +715,21 @@ always_comb begin
                 mc_data2      = reg1_rdata + delta;
                 mc_valid      = 1'b1;
             end
+            // Word operand at offset FFFFh wraps the 64K segment.
+            if (mc_cur.arg[3] && !(ex_modrm[7:6] == 2'b11 && mc_cur.arg[1:0] == 2'd0)) begin
+                logic [15:0] off;
+                off = ex_e_addr_val;
+                if (mc_cur.arg[1:0] == 2'd1)
+                    off = ex_e_addr_val + 16'd2;
+                else if (mc_cur.arg[1])
+                    off = reg1_rdata;
+                if (off == 16'hFFFF) begin
+                    rd = 0;
+                    mc_gp = 1'b1;
+                    mc_valid = 1'b0;
+                    mc_reg2_valid = 1'b0;
+                end
+            end
             if (DEBUG) $display("MC_LOAD: arg=%x, addr=%x, mc_reg2_valid=%x, mc_reg2=%x, mc_data2=%x", mc_cur.arg, rd_addr, mc_reg2_valid, mc_reg2, mc_data2);
         end
 
@@ -761,6 +780,17 @@ always_comb begin
                 mc_data2      = reg1_rdata + delta;
             end
             mc_valid = 1'b1;                      // commit to WB stage
+
+            if (w && mc_cur.arg[1:0] != 2'd0) begin
+                logic [15:0] off;
+                off = (mc_cur.arg[1:0] == 2'd1) ? ex_e_addr_val : reg1_rdata;
+                if (off == 16'hFFFF) begin
+                    mc_wr = 1'b0;
+                    mc_gp = 1'b1;
+                    mc_valid = 1'b0;
+                    mc_reg2_valid = 1'b0;
+                end
+            end
         end
 
         //==================================================================

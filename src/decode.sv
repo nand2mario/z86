@@ -117,6 +117,9 @@ wire emit = id_ready & id_valid & ~id_void;
 reg nmi_latched, intr_latched;
 reg start_int_service;
 wire int_pipeline_inject = (nmi_latched | intr_latched) & emit;  // inject at an valid instruction boundary
+// A 16-bit access at offset FFFFh wraps the segment. 80286 raises #GP(0).
+wire id_gp_ea = emit && ii.w && (ii.e_is_m || ii.e_is_imm_addr) && (id_e_addr_val == 16'hFFFF);
+wire fault_inject = int_pipeline_inject | id_gp_ea;
 
 // recognize simple POP (no ModR/M)
 wire id_pop_r16 = (id_opcode >= 8'h58) && (id_opcode <= 8'h5F);
@@ -295,8 +298,8 @@ always_comb begin
         endcase
     end
 
-    if (int_pipeline_inject) begin
-        id_ucode_entry = UENTRY_INT_IMM;
+    if (fault_inject) begin
+        id_ucode_entry = (id_gp_ea && !int_pipeline_inject) ? UENTRY_GP : UENTRY_INT_IMM;
         id_ucode_valid = 1'b1;
     end
 
@@ -541,7 +544,7 @@ always_comb begin
     //     $display("DECODE: rd=1,rd_addr=%x", rd_addr);
 end
 
-assign rd = id_mem_rd & id_ready & id_valid & ~id_void & rd_ready;
+assign rd = id_mem_rd & id_ready & id_valid & ~id_void & rd_ready & ~id_gp_ea;
 
 // Send signals to EXECUTE
 always @(posedge clk) begin
@@ -589,15 +592,20 @@ always @(posedge clk) begin
                     ex_g_val_next, id_mem_rd, rd_addr);
         end
 
-        if (int_pipeline_inject) begin
+        if (fault_inject) begin
             ex_valid      <= 1'b1;
-            ex_opcode     <= 8'hCD;                         // INT Ib
-            ex_imm        <= intr_latched ? pic_vec : 8'd2; // 2 = NMI vector
-            start_int_service <= 1;
+            ex_mem_rd     <= 1'b0;
             ex_ucode_valid <= 1'b1;
-            ex_ip_after <= id_inst.ip_this;  // return to this instruction after interrupt
-//            is_ext_int       <= 1'b1;      // external interrupt flag
-            int_is_nmi       <= nmi_latched;
+            ex_ip_after <= id_inst.ip_this;  // faulting instruction, or resume point
+            if (id_gp_ea && !int_pipeline_inject) begin
+                ex_opcode <= 8'hCD;
+                ex_imm    <= 8'd13;          // #GP
+            end else begin
+                ex_opcode     <= 8'hCD;                         // INT Ib
+                ex_imm        <= intr_latched ? pic_vec : 8'd2; // 2 = NMI vector
+                start_int_service <= 1;
+                int_is_nmi       <= nmi_latched;
+            end
         end
 
     end
@@ -652,7 +660,7 @@ always @(posedge clk) begin
                                             ex_iclass <= I_PUSHPOP;
         default:                            ex_iclass <= I_IDLE;
         endcase
-        if (int_pipeline_inject) begin
+        if (fault_inject) begin
             ex_iclass <= I_IDLE;      // executed by microcode
         end
     end
@@ -711,7 +719,7 @@ always_ff @(posedge clk or posedge reset) begin
         end
 
         // 3. pipeline flush (taken branch / INT) -> scoreboard reset
-        if (br_taken | int_pipeline_inject) begin
+        if (br_taken | fault_inject) begin
             sb0_valid <= 1'b0;  sb1_valid <= 1'b0;
             sb0_mask  <= '0;    sb1_mask  <= '0;
         end
@@ -841,7 +849,7 @@ always @(posedge clk) begin
         id_void_r <= 1'b0;
     end else if (id_valid) begin
         if (id_ready)                            id_void_r <= 1'b0;
-        else if (br_taken | int_pipeline_inject) id_void_r <= 1'b1;
+        else if (br_taken | fault_inject) id_void_r <= 1'b1;
     end
 end
 
