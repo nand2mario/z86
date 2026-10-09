@@ -18,11 +18,11 @@ module fetch (
     input             reset,
 
     input             br_taken,      // set new address to fetch from
-    input     [19:0]  br_target,     // byte address
+    input     [20:0]  br_target,     // byte address
     input     [15:0]  br_new_ip,     // IP after branch
     input     [15:0]  br_new_cs,     // CS after branch
 
-    input     [19:0]  reset_addr,    // address after reset
+    input     [20:0]  reset_addr,    // address after reset
     input     [15:0]  reset_ip,      // IP after reset
 
     // AXI-style instruction output
@@ -51,7 +51,7 @@ module fetch (
     // cache loading interface
     output reg        ld_req,        
     input             ld_ack,
-    output reg [19:0] ld_addr,
+    output reg [20:0] ld_addr,
     input     [127:0] ld_data
 );
 
@@ -66,7 +66,7 @@ reg instr_acked = 1;
 reg [7:0]  buffer[0:31];
 reg        buf_start;         // 0: buffer starts at offset 0; 1: buffer starts at offset 16 and wraps around
 reg [1:0]  buf_valid;         // which halves of the buffer are valid
-reg [19:0] buf_addr;          // 16-byte aligned buffer start address
+reg [20:0] buf_addr;          // 16-byte aligned buffer start address
 reg [4:0]  ptr;               // buffer[ptr] is start of next instruction
 
 reg        loading;           // there's an ongoing cache request
@@ -156,7 +156,7 @@ always @(posedge clk) begin
 
     if (reset) begin
         buf_valid <= 0;
-        buf_addr <= {reset_addr[19:4], 4'b0};
+        buf_addr <= {reset_addr[20:4], 4'b0};
         ptr <= reset_addr[3:0];
         ip <= reset_ip;
         buf_start <= 0;
@@ -181,11 +181,11 @@ always @(posedge clk) begin
 
         // set address
         if (br_taken) begin
-            if (buf_addr[19:4] != br_target[19:4] && buf_addr[19:4] + 1 != br_target[19:4]) begin
+            if (buf_addr[20:4] != br_target[20:4] && buf_addr[20:4] + 1 != br_target[20:4]) begin
                 // target address is not in our cache line, flush the cache
                 buf_valid <= 0;
                 buf_start <= 0;
-                buf_addr <= {br_target[19:4], 4'b0};
+                buf_addr <= {br_target[20:4], 4'b0};
                 ip <= br_new_ip;                            
                 ptr <= br_target[3:0];
                 prefix_len <= 0;

@@ -91,6 +91,12 @@ typedef struct packed {
     logic [3:0] seg;        // ES/CS/SS/DS
     logic       stackop;    // a stack op is in EX or WB
     logic       io;         // block one cycle for IO RAW
-} reg_mask_t;               
+} reg_mask_t;
+
+// Physical address. Bit 20 is visible only while a20_enable is set; otherwise
+// the low 20 bits match the historical wrap.
+function automatic [20:0] a20_gate(input [20:0] sum, input a20);
+    a20_gate = {a20 & sum[20], sum[19:0]};
+endfunction
 
 endpackage

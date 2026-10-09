@@ -6,7 +6,7 @@ module z86_test (
     input         cpu_reset,
 
 	input         dbg_mem_wr,
-	input  [19:0] dbg_mem_addr,
+	input  [20:0] dbg_mem_addr,
 	input  [7:0]  dbg_mem_din,
 	input         dbg_mem_rd,
 	output [7:0]  dbg_mem_dout,
@@ -18,7 +18,7 @@ module z86_test (
 	output [15:0] dbg_reg_dout
 );
 
-wire [19:0] mem_address;
+wire [20:0] mem_address;
 wire [31:0] mem_writedata;
 wire [31:0] mem_readdata;
 wire  [3:0] mem_byteenable;
@@ -44,8 +44,9 @@ wire [15:0] cpu_io_write_word;
 wire [15:0] cpu_io_write_data;
 
 wire        a20_enable;
+assign a20_enable = 1'b0;
 
-wire [19:0] dma_address;
+wire [20:0] dma_address;
 wire        dma_16bit;
 wire        dma_read;
 wire [15:0] dma_readdata;

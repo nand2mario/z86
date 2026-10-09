@@ -13,6 +13,7 @@ import z86_package::*;
 module execute (
     input             clk,
     input             reset,
+    input             a20_enable,
     output reg        halted /* verilator public */,
 
     // EXECUTE interface
@@ -27,7 +28,7 @@ module execute (
     input [15:0]      ex_imm,
     input             ex_mem_rd,
     input [15:0]      ex_e_addr_val,
-    input [19:0]      ex_e_fulladdr,
+    input [20:0]      ex_e_fulladdr,
     input [15:0]      ex_e_segment,
     input [15:0]      ex_g_val,
 
@@ -62,14 +63,14 @@ module execute (
     // memory interface
     output reg        rd,
     input             rd_ready,
-    output reg [19:0] rd_addr,
+    output reg [20:0] rd_addr,
     output reg        rd_word,
     input      [15:0] rd_data,
     output reg        rd_io,
 
     output reg        wr_valid,
     input             wr_ready,
-    output reg [19:0] wr_addr,
+    output reg [20:0] wr_addr,
     output reg [15:0] wr_data,
     output reg        wr_word,
     output reg        wr_io,
@@ -95,7 +96,7 @@ module execute (
     input      [15:0] seg_ES,
 
     // FETCH and WRITE-BACK -  branch target
-    output reg [19:0] br_target,
+    output reg [20:0] br_target,
     output reg        br_taken,
     output reg [15:0] br_new_cs,
     output reg [15:0] br_new_ip,
@@ -184,7 +185,7 @@ reg [15:0]  mc_data2;
 reg         mc_width2;
 
 reg         mc_wr;
-reg [19:0]  mc_wr_addr;
+reg [20:0]  mc_wr_addr;
 reg [15:0]  mc_wr_data;
 reg         mc_wr_word;
 reg         mc_wr_io;
@@ -628,7 +629,7 @@ always_comb begin
 
             // port-1 : memory write
             mc_wr = 1'b1;
-            mc_wr_addr = {seg_SS,4'b0} + new_sp;
+            mc_wr_addr = a20_gate({1'b0, seg_SS, 4'b0} + {5'b0, new_sp}, a20_enable);
             mc_wr_data = val;
 
             // port-2 : SP ← new_sp
@@ -656,7 +657,7 @@ always_comb begin
             if ((~wr_valid | wr_ready) &&rd_ready && ~pop_reg & ~br_taken) begin
                 pop_next = 1;
                 rd               = 1;                // launch read
-                rd_addr          = {seg_SS,4'b0} + this_sp;
+                rd_addr          = a20_gate({1'b0, seg_SS, 4'b0} + {5'b0, this_sp}, a20_enable);
 
                 new_sp           = this_sp + 16'd2;  // post-increment
                 mc_valid         = 1'b1;
@@ -693,10 +694,10 @@ always_comb begin
             rd   = 1;
             // reg1_raddr = mc_cur.arg[0] ? R_DI : R_SI;
             case (mc_cur.arg[1:0]) 
-            2'd0: rd_addr = { ex_e_segment, 4'd0 } + ex_e_addr_val;
-            2'd1: rd_addr = { ex_e_segment, 4'd2 } + ex_e_addr_val;
-            2'd2: rd_addr = { ex_e_segment, 4'd0 } + reg1_rdata;
-            2'd3: rd_addr = { seg_ES, 4'd0 } + reg1_rdata;
+            2'd0: rd_addr = a20_gate({1'b0, ex_e_segment, 4'b0} + {5'b0, ex_e_addr_val}, a20_enable);
+            2'd1: rd_addr = a20_gate({1'b0, ex_e_segment, 4'd2} + {5'b0, ex_e_addr_val}, a20_enable);
+            2'd2: rd_addr = a20_gate({1'b0, ex_e_segment, 4'b0} + {5'b0, reg1_rdata}, a20_enable);
+            2'd3: rd_addr = a20_gate({1'b0, seg_ES, 4'b0} + {5'b0, reg1_rdata}, a20_enable);
             endcase
 
             // register form
@@ -739,12 +740,12 @@ always_comb begin
                 end
                 2'd2: begin                 // tmp_lo → [ES:DI]
                     mc_wr = 1'b1;
-                    mc_wr_addr = {seg_ES,4'b0} + reg1_rdata;
+                    mc_wr_addr = a20_gate({1'b0, seg_ES, 4'b0} + {5'b0, reg1_rdata}, a20_enable);
                     mc_wr_data = tmp_lo;
                 end
                 2'd3: begin                 // AL/AX → [ES:DI]
                     mc_wr = 1'b1;
-                    mc_wr_addr = {seg_ES,4'b0} + reg1_rdata;
+                    mc_wr_addr = a20_gate({1'b0, seg_ES, 4'b0} + {5'b0, reg1_rdata}, a20_enable);
                     mc_wr_data = ex_e_addr_val;      // TODO: check if this gives us AX
                 end
                 default: ;   
@@ -1754,7 +1755,7 @@ always @(posedge clk) begin
             end
         end else begin        // PUSH has memory write
             wr_valid <= 1;
-            wr_addr <= {seg_SS,4'b0} + (is_pop ? sp_before : sp_after);
+            wr_addr <= a20_gate({1'b0, seg_SS, 4'b0} + {5'b0, (is_pop ? sp_before : sp_after)}, a20_enable);
             wr_data <= push_val;
             wr_word <= 1'b1;              // word access
         end
@@ -1873,7 +1874,7 @@ always @(posedge clk) begin
             wr_valid <= 1'b1;
             wr_addr <= ex_e_fulladdr; // {ex_e_segment, 4'b0} + ex_e_addr_val;   // ModR/M address from earlier
             wr_word <= ex_opcode[0];
-            if (DEBUG) $display("mem dest: wr_addr=%x, wr_data=%x", {ex_e_segment, 4'b0} + ex_e_addr_val, mov_src);
+            if (DEBUG) $display("mem dest: wr_addr=%x, wr_data=%x", a20_gate({1'b0, ex_e_segment, 4'b0} + {5'b0, ex_e_addr_val}, a20_enable), mov_src);
         end
         default: ;
         endcase
@@ -1908,7 +1909,7 @@ always @(posedge clk) begin
         // signed 8-bit displacement in imm8 is already sign-extended by decoder
         br_new_cs      <= seg_CS;
         br_new_ip      <= ex_ip_after + {{12{ex_imm[7]}}, ex_imm[7:0]};   // TODO: Move to decode
-        br_target      <= {seg_CS, 4'b0} + ex_ip_after + {{12{ex_imm[7]}}, ex_imm[7:0]};
+        br_target      <= a20_gate({1'b0, seg_CS, 4'b0} + {5'b0, ex_ip_after} + {{13{ex_imm[7]}}, ex_imm[7:0]}, a20_enable);
     end
 
 
@@ -1935,7 +1936,7 @@ always @(posedge clk) begin
                 target_seg = ex_disp[31:16];         // upper word came in disp field
             end
             br_taken   <= 1'b1;
-            br_target  <= {target_seg, 4'b0} + target_off;       // 24-bit addition
+            br_target  <= a20_gate({1'b0, target_seg, 4'b0} + {5'b0, target_off}, a20_enable);       // 24-bit addition
             br_new_cs  <= target_seg;
             br_new_ip  <= target_off;
         end
@@ -2013,7 +2014,7 @@ always @(posedge clk) begin
         target_off  = ex_ip_after + {{8{ex_imm[7]}}, ex_imm[7:0]}; // sign-extend disp
 
         br_taken    <= cond;
-        br_target   <= {seg_CS, 4'b0} +  target_off ;   // still physical 20-bit because FETCH flattens
+        br_target   <= a20_gate({1'b0, seg_CS, 4'b0} + {5'b0, target_off}, a20_enable) ;   // still physical 20-bit because FETCH flattens
         br_new_cs   <= seg_CS;
         br_new_ip   <= target_off;
         /* No flag change, no register/memory write */
@@ -2205,7 +2206,7 @@ always @(posedge clk) begin
         wr_io <= mc_wr_io;
 
         br_taken    <= mc_load_cs_ip;
-        br_target   <= {mc_new_cs, 4'b0} + mc_new_ip;
+        br_target   <= a20_gate({1'b0, mc_new_cs, 4'b0} + {5'b0, mc_new_ip}, a20_enable);
         br_new_ip   <= mc_new_ip;
         br_new_cs   <= mc_new_cs;
         if (DEBUG) $display("mc_valid: %b, mc_reg_valid: %b, mc_reg: %d, mc_data: %h, mc_wr: %b, mc_wr_addr: %h, mc_wr_data: %h, mc_wr_word: %b, mc_reg2_valid: %b, mc_reg2: %d, mc_data2: %h, mc_flags: %h, mc_flags_update_mask: %b", mc_valid, mc_reg_valid, mc_reg, mc_data, mc_wr, mc_wr_addr, mc_wr_data, mc_wr_word, mc_reg2_valid, mc_reg2, mc_data2, mc_flags, mc_flags_update_mask);

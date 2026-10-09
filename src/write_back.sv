@@ -29,7 +29,7 @@ module write_back(
 
     // branching
     input             br_taken,
-    input [19:0]      br_target,
+    input [20:0]      br_target,
     input [15:0]      br_new_cs,
     input [15:0]      br_new_ip,
 

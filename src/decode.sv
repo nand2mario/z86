@@ -7,6 +7,7 @@ import z86_package::*;
 module decode (
     input             clk,
     input             reset,
+    input             a20_enable,
 
     // upstream (fetch) interface
     output            id_ready,         // instruct upstream (fetch) to send instructions
@@ -45,7 +46,7 @@ module decode (
     output reg [31:0] ex_disp,
     output reg        ex_mem_rd,            // 1: memory read is ongoing for hardwired instruction
     output reg [15:0] ex_e_addr_val,        // E: effective address, or register value
-    output reg [19:0] ex_e_fulladdr,        // E: full address
+    output reg [20:0] ex_e_fulladdr,        // E: full address
     output reg [15:0] ex_e_segment,
     output reg [15:0] ex_g_val,             // G: register value
     output reg        ex_ucode_valid,       // This instruction uses microcode
@@ -69,7 +70,7 @@ module decode (
 
     // memory read interface
     output reg        rd,
-    output reg [19:0] rd_addr,
+    output reg [20:0] rd_addr,
     output reg        rd_io,
     output reg        rd_word,
     input      [15:0] rd_data,
@@ -520,14 +521,14 @@ always_comb begin
     if (id_opcode == 8'hD7) 
         id_mem_rd  = 1'b1;
 
-    rd_addr = {id_e_segment, 4'b0} + id_e_addr_val;     // critical path: id_e_addr_val
+    rd_addr = a20_gate({1'b0, id_e_segment, 4'b0} + {5'b0, id_e_addr_val}, a20_enable);     // critical path: id_e_addr_val
     rd_io = is_io_in;
     rd_word = 1'b1;
 
     // POP reg/seg is hardwired and we issue memory read here
     if (id_pop_r16 | id_pop_seg | id_pop_rm) begin
         id_mem_rd = 1;
-        rd_addr = {seg_SS, 4'b0} + reg1_rdata;   // stack instructions are all Gsp
+        rd_addr = a20_gate({1'b0, seg_SS, 4'b0} + {5'b0, reg1_rdata}, a20_enable);   // stack instructions are all Gsp
     end            
 
     // IN (E4/E5/EC/ED)
@@ -572,7 +573,7 @@ always @(posedge clk) begin
 
             ex_g_val <= ex_g_val_next;
             ex_e_addr_val <= id_e_addr_val;
-            ex_e_fulladdr <= {id_e_segment, 4'b0} + id_e_addr_val;
+            ex_e_fulladdr <= a20_gate({1'b0, id_e_segment, 4'b0} + {5'b0, id_e_addr_val}, a20_enable);
             ex_mem_rd <= id_mem_rd;
 
             ex_e_segment <= id_e_segment;
@@ -585,7 +586,7 @@ always @(posedge clk) begin
 
             if (id_opcode != 8'h90)
                 if (DEBUG) $display("DECODE: e_addr_val=%x, e_fulladdr=%x, g_val=%x, mem_rd=%x, rd_addr=%x", 
-                    id_e_addr_val, {id_e_segment, 4'b0} + id_e_addr_val,
+                    id_e_addr_val, a20_gate({1'b0, id_e_segment, 4'b0} + {5'b0, id_e_addr_val}, a20_enable),
                     ex_g_val_next, id_mem_rd, rd_addr);
         end
 

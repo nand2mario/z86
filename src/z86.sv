@@ -33,7 +33,7 @@ module z86 (
 	//-------------------------------------------------------------------------- memory bus
     // 32-bit interface provide enough bandwidth. Every cycles requires on average 3/2=1.5 bytes
     // assuming 3 bytes per instruction, and CPI = 2
-	output      [19:0]  avm_address,
+	output      [20:0]  avm_address,
 	output      [31:0]  avm_writedata,
 	output      [3:0]   avm_byteenable,
 	output      [3:0]   avm_burstcount,
@@ -46,7 +46,7 @@ module z86 (
 
 	//-------------------------------------------------------------------------- dma bus
     // driven by DMA controller
-	input       [19:0]  dma_address,
+	input       [20:0]  dma_address,
 	input               dma_16bit,
 	input               dma_write,          // pulse
 	input       [15:0]  dma_writedata,
@@ -76,7 +76,7 @@ module z86 (
     output      [15:0]  dbg_reg_dout,
      
     input               dbg_mem_wr,
-    input       [19:0]  dbg_mem_addr,
+    input       [20:0]  dbg_mem_addr,
     input       [7:0]   dbg_mem_din,
     input               dbg_mem_rd,
     output      [7:0]   dbg_mem_dout
@@ -89,7 +89,7 @@ pll u_pll (.clkin(clk_g), .clkout0(clk));
 `endif
 
 // cache interface 
-wire [19:0] ld_addr;
+wire [20:0] ld_addr;
 wire [127:0] ld_data;
 wire ld_req, ld_ack;
 
@@ -98,21 +98,21 @@ wire [15:0] rd_data;
 
 wire ex_rd;      // read from EXECUTE
 wire ex_rd_io;
-wire [19:0] ex_rd_addr;  
+wire [20:0] ex_rd_addr;  
 wire ex_rd_word;
 
 wire id_rd;      // read from DECODE
 wire id_rd_io;
-wire [19:0] id_rd_addr;
+wire [20:0] id_rd_addr;
 wire id_rd_word;
 
-wire [19:0] wr_addr;   // write from EXECUTE
+wire [20:0] wr_addr;   // write from EXECUTE
 wire [15:0] wr_data;
 wire wr_word;
 wire wr_valid, wr_ready;
 wire wr_io;
 
-reg [19:0] dbg_reset_addr = 20'hFFFF0;
+reg [20:0] dbg_reset_addr = 21'hFFFF0;
 reg [15:0] dbg_reset_ip = 16'hFFF0;
 
 // decode2 stage signals
@@ -137,7 +137,7 @@ wire ex_ready /* verilator public */, ex_valid /* verilator public */;
 wire [15:0] ex_ip_after /* verilator public */;
 wire ex_mem_rd;
 wire [15:0] ex_e_addr_val;
-wire [19:0] ex_e_fulladdr;
+wire [20:0] ex_e_fulladdr;
 wire [15:0] ex_e_segment;
 wire [15:0] ex_g_val;
 wire [7:0] ex_opcode /* verilator public */;
@@ -169,7 +169,7 @@ wire wb_seg_valid;
 wire [1:0] wb_seg;
 wire [15:0] wb_seg_data;
 wire br_taken;
-wire [19:0] br_target;
+wire [20:0] br_target;
 wire [15:0] br_new_cs;
 wire [15:0] br_new_ip;
 
@@ -193,7 +193,7 @@ wire [15:0] seg_CS;
 wire [15:0] seg_SS;
 wire [15:0] seg_DS;
 
-reg [19:0] dbg_set_addr_val;
+reg [20:0] dbg_set_addr_val;
 reg [15:0] dbg_set_ip_val;
 reg dbg_set_addr;
 
@@ -316,6 +316,7 @@ fetch u_fetch_decode1 (
 decode u_decode2 (
     .clk                (clk), 
     .reset              (cpu_reset),
+    .a20_enable         (a20_enable),
 
     .id_ready           (id_ready), 
     .id_valid           (id_valid),
@@ -389,6 +390,7 @@ decode u_decode2 (
 execute u_execute (
     .clk                (clk),          
     .reset              (cpu_reset),
+    .a20_enable         (a20_enable),
 
     .ex_ready           (ex_ready), 
     .ex_valid           (ex_valid), 

@@ -3,7 +3,7 @@
 module sdram_sim (
     input             clk,
     input             reset,
-    input      [19:0] cpu_addr,
+    input      [20:0] cpu_addr,
     input      [31:0] cpu_din,
     output reg [31:0] cpu_dout,
     output reg        cpu_dout_ready,
@@ -25,7 +25,7 @@ module sdram_sim (
     input             vga_fb_en
 );
 
-localparam DWORD_CNT = 1024*1024/4;
+localparam DWORD_CNT = 2*1024*1024/4;
 
 logic [31:0] mem [0:DWORD_CNT-1] /* verilator public */;
 
@@ -40,7 +40,7 @@ localparam VGA_WRITE2 = 5;
 assign cpu_busy = (state != IDLE);
 
 logic [7:0] burst_left;
-logic [19:2] burst_addr;
+logic [20:2] burst_addr;
 
 reg   [1:0] vga_mask;
 reg   [1:0] vga_cmp;
@@ -96,12 +96,12 @@ always @(posedge clk) begin
                         state <= VGA_READ_WAIT;
                     end else begin
                         // Main memory read, supports burst
-                        cpu_dout <= mem[cpu_addr[19:2]];
+                        cpu_dout <= mem[cpu_addr[20:2]];
                         cpu_dout_ready <= 1;
                         if (cpu_burstcount > 1) begin
                             state <= READ_BURST;
                             burst_left <= cpu_burstcount - 1;
-                            burst_addr <= cpu_addr[19:2] + 1;
+                            burst_addr <= cpu_addr[20:2] + 1;
                         end
                     end
                 end else if (cpu_we) begin
@@ -116,10 +116,10 @@ always @(posedge clk) begin
                         // $display("VGA write: [%h]=%h, byteenable=%b", cpu_addr, cpu_din, cpu_be); 
                     end else begin
                         // Main memory write, supports burst
-                        if (cpu_be[0]) mem[cpu_addr[19:2]][7:0] <= cpu_din[7:0];
-                        if (cpu_be[1]) mem[cpu_addr[19:2]][15:8] <= cpu_din[15:8];
-                        if (cpu_be[2]) mem[cpu_addr[19:2]][23:16] <= cpu_din[23:16];
-                        if (cpu_be[3]) mem[cpu_addr[19:2]][31:24] <= cpu_din[31:24];
+                        if (cpu_be[0]) mem[cpu_addr[20:2]][7:0] <= cpu_din[7:0];
+                        if (cpu_be[1]) mem[cpu_addr[20:2]][15:8] <= cpu_din[15:8];
+                        if (cpu_be[2]) mem[cpu_addr[20:2]][23:16] <= cpu_din[23:16];
+                        if (cpu_be[3]) mem[cpu_addr[20:2]][31:24] <= cpu_din[31:24];
                     end
                 end
             end

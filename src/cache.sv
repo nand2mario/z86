@@ -6,14 +6,14 @@ module cache(
     input              reset,
 
     // Instruction loads from FETCH
-    input       [19:0] ld_addr,
+    input       [20:0] ld_addr,
     input              ld_req,          // load request toggle
     output reg         ld_ack,
     output reg [127:0] ld_data,         // whole cacheline output
     output reg         ld_hit,          // 1 if cache hit, combinatorial
 
     // Data reads from EXECUTE or DECODE (memory or I/O)
-    input      [19:0]  rd_addr,
+    input      [20:0]  rd_addr,
     input              rd,              // read pulse
     output reg         rd_ready = 1'b1, // idle or data ready
     output reg [15:0]  rd_data,
@@ -21,7 +21,7 @@ module cache(
     input              rd_word,
 
     // Data writes from EXECUTE (memory or I/O)
-    input       [19:0] wr_addr,
+    input       [20:0] wr_addr,
     input              wr_valid,        // write request, hold high until wr_ready is high
     output reg         wr_ready,        // valid/ready pair, request done when both are high
     input       [15:0] wr_data,
@@ -29,7 +29,7 @@ module cache(
     input              wr_io,
 
     // Memory interface
-    output reg [19:0]  avm_address,
+    output reg [20:0]  avm_address,
     output reg [31:0]  avm_writedata,
     output reg [3:0]   avm_byteenable,
     output reg [3:0]   avm_burstcount,
@@ -54,14 +54,14 @@ module cache(
 
     // DEBUG interface
     input              dbg_mem_wr,
-    input       [19:0] dbg_mem_addr,
+    input       [20:0] dbg_mem_addr,
     input       [7:0]  dbg_mem_din,
     input              dbg_mem_rd,
     output reg [7:0]   dbg_mem_dout
 );
 
 // Pending requests as read request is pulse
-logic [19:0] rd_addr_pending;
+logic [20:0] rd_addr_pending;
 logic rd_pending, rd_io_pending, rd_word_pending;
 
 logic [1:0] ld_offset;
@@ -84,7 +84,7 @@ logic wr_valid_r;
 
 // Output signals
 always_comb begin
-    automatic logic [19:0] rd_a = rd_pending ? rd_addr_pending : rd_addr;
+    automatic logic [20:0] rd_a = rd_pending ? rd_addr_pending : rd_addr;
 
     avm_read = 0;
     avm_write = 0;
