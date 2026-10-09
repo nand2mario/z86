@@ -335,16 +335,16 @@ always @(posedge clk) begin
         end
         2'd1: begin
             // current AX & flags
-            logic [7:0] al  = ex_e_addr_val[7:0]; // regs[AX][7:0];
-            logic [7:0] ah  = ex_e_addr_val[15:8];// regs[AX][15:8];
-            logic [7:0] imm = ex_imm[7:0];
-            logic       cf  = CF;
-            logic       af  = AF;
+            automatic logic [7:0] al  = ex_e_addr_val[7:0]; // regs[AX][7:0];
+            automatic logic [7:0] ah  = ex_e_addr_val[15:8];// regs[AX][15:8];
+            automatic logic [7:0] imm = ex_imm[7:0];
+            automatic logic       cf  = CF;
+            automatic logic       af  = AF;
             // working copies
-            logic [7:0] al_n = al;
-            logic [7:0] ah_n = ah;
-            logic       cf_n = cf;
-            logic       af_n = af;
+            automatic logic [7:0] al_n = al;
+            automatic logic [7:0] ah_n = ah;
+            automatic logic       cf_n = cf;
+            automatic logic       af_n = af;
 
             adj_state <= 2'd2;
             adj_cond <= 1'b0;
@@ -529,7 +529,7 @@ logic [15:0] this_sp;
 
 // Main µ-op execution
 always_comb begin
-    logic [15:0] val = 'x;
+    automatic logic [15:0] val = 'x;
 
     mc_wait = 0;
 
@@ -687,8 +687,15 @@ always_comb begin
         //             arg[3]       1: 16-bit, 0: 8-bit
         //==================================================================
         MC_LOAD: begin
-            logic [2:0] r = mc_cur.arg[0] ? R_DI : R_SI;
-            logic [15:0] delta = mc_cur.arg[3] ? 16'd2 : 16'd1;
+            automatic logic [2:0] r = mc_cur.arg[0] ? R_DI : R_SI;
+            // Must be a plain declaration plus blocking assignments. With a
+            // declaration initialiser, SystemVerilog treats the variable as
+            // continuously driven, so the following `delta = -delta` becomes a
+            // second driver reading the same signal -- a real combinational
+            // loop. Verilator reported it as UNOPTFLAT here and, at runtime,
+            // aborted string instructions with DIDNOTCONVERGE.
+            logic [15:0] delta;
+            delta = mc_cur.arg[3] ? 16'd2 : 16'd1;
             if (DF) delta = -delta;             // honour Direction-Flag
             rd   = 1;
             // reg1_raddr = mc_cur.arg[0] ? R_DI : R_SI;
@@ -722,9 +729,17 @@ always_comb begin
         //             arg[3]    1: word, 0: byte
         //==================================================================
         MC_STORE: begin
-            logic w      = mc_cur.arg[3];
-            logic upDI   = mc_cur.arg[2];
-            logic [15:0] delta = w ? 16'd2 : 16'd1;
+            logic w;
+            logic upDI;
+            logic [15:0] delta;
+            // These must be plain declarations plus blocking assignments. A
+            // declaration initialiser inside a procedural block is evaluated
+            // once, at time 0, so `upDI` held its reset-time value (0) forever
+            // and the DI update below never ran -- which is why MOVS/STOS/SCAS
+            // moved no data pointer for their destination.
+            w    = mc_cur.arg[3];
+            upDI = mc_cur.arg[2];
+            delta = w ? 16'd2 : 16'd1;
             if (DF) delta = -delta;                 // honour Direction-Flag
 
             // ----------------------------------------------------------------
@@ -972,7 +987,7 @@ always_comb begin
         //   Computes Z,S,P,CF,OF,AF exactly like SUB but discards the result.
         // ------------------------------------------------------------------
         MC_STR_CMP: begin
-            logic w = mc_cur.arg[0];
+            automatic logic w = mc_cur.arg[0];
             logic [15:0] opA, opB;
             if (ex_opcode==8'hAE || ex_opcode==8'hAF) begin   // SCAS
                 // reg1_raddr = R_AX;
@@ -1021,8 +1036,8 @@ always_comb begin
         //                 3 : G     <= imm16 * r/m
         // ------------------------------------------------------------------
         MC_MULU, MC_MULS: begin
-            logic w = mc_cur.arg[0];
-            logic signed_op = (mc_cur.op==MC_MULS);
+            automatic logic w = mc_cur.arg[0];
+            automatic logic signed_op = (mc_cur.op==MC_MULS);
 
             mc_wait = 1;
             if (~mul_done) begin
@@ -1353,24 +1368,46 @@ end
 // Hardwired instructions operations
 //--------------------------------------------------------------------
 always @(posedge clk) begin
-    logic [15:0] alu_result = ex_e_addr_val;
-    logic [15:0] flags = reg_f;
+    logic [15:0] alu_result;
+    logic [15:0] flags;
 
     logic        load_cs_ip;  // EXECUTE2 → FETCH/SEG unit
     logic [15:0] new_cs;      // valid when load_cs_ip=1
     logic [15:0] new_ip;
-    logic ex_w = ex_opcode[0];
-    logic ex_d = ex_opcode[1];
-    logic use_imm = ex_opcode[2];
-    logic modrm_reg = ex_modrm[7:6] == 2'b11;
+    logic        ex_w;
+    logic        ex_d;
+    logic        use_imm;
+    logic        modrm_reg;
 
-    logic is_cmp = 0;
-    logic [15:0] res = 0;
+    logic        is_cmp;
+    logic [15:0] res;
 
-    // defaults
-    logic [15:0] hw_flags          = reg_f;
-    logic        hw_flags_valid    = ex_valid & (~ex_mem_rd | rd_ready) & (~wr_valid | wr_ready);
-    logic [1:0]  hw_flags_update_mask  = 2'b00;
+    logic [15:0] hw_flags;
+    logic        hw_flags_valid;
+    logic [1:0]  hw_flags_update_mask;
+
+    // All of the above are per-instruction defaults, so they must be recomputed
+    // on every clock. They used to be declaration initializers, which
+    // SystemVerilog evaluates once when the block is entered at time 0 rather
+    // than on each iteration. Every default below therefore held its
+    // time-zero value forever: alu_result, flags, is_cmp and res were stuck
+    // with whatever ex_e_addr_val/reg_f held during reset, ex_w/ex_d/use_imm
+    // were frozen at the first decoded opcode's bits (so byte vs word and
+    // immediate selection were wrong for every instruction after the first),
+    // and hw_flags_valid never re-evaluated its ready condition -- which
+    // silently dropped flag write-back for I_ARITH and I_LOGIC, which assign
+    // hw_flags but not hw_flags_valid.
+    alu_result             = ex_e_addr_val;
+    flags                  = reg_f;
+    ex_w                   = ex_opcode[0];
+    ex_d                   = ex_opcode[1];
+    use_imm                = ex_opcode[2];
+    modrm_reg              = ex_modrm[7:6] == 2'b11;
+    is_cmp                 = 0;
+    res                    = 0;
+    hw_flags               = reg_f;
+    hw_flags_valid         = ex_valid & (~ex_mem_rd | rd_ready) & (~wr_valid | wr_ready);
+    hw_flags_update_mask   = 2'b00;
 
     wb_reg_valid      <= 1'b0;
     wb_reg2_valid     <= 1'b0;
@@ -1408,7 +1445,7 @@ always @(posedge clk) begin
     // ------------------------------------------------------------------------
     // This is critical path.
     I_ARITH: begin
-        logic is_cmp = ex_arith_op[7];
+        automatic logic is_cmp = ex_arith_op[7];
 
         // 0: ADD, 1: OR, 2: ADC, 3: SBB, 4: AND, 5: SUB, 6: XOR, 7: CMP
         hw_flags_update_mask = 2'b11;   // default: update OF/CF
@@ -1464,7 +1501,7 @@ always @(posedge clk) begin
         automatic logic [15:0] lsrc = logic_src();
         automatic logic [15:0] op1 = ex_e_val;
         automatic logic [15:0] op2 = ex_g_val;
-        logic do_write_back = 1'b1;
+        automatic logic do_write_back = 1'b1;
 
         if (ex_opcode < 8'h40) begin
             // OR:08~0D, AND:20~25, XOR:30~35
@@ -1533,13 +1570,13 @@ always @(posedge clk) begin
     // 3.  Shifts / rotates  D0–D1 (by 1) , D2-D3 (by CL), C0–C1 (by imm8)
     //--------------------------------------------------------------------
     I_SHIFT: begin
-        int bits   = ex_w ? 16 : 8;          // operand width in bits
-        bit use_cl = ex_opcode[1];           // /2 variant
-        bit use_imm = ~ex_opcode[4];         // C0-C1
+        automatic int bits   = ex_w ? 16 : 8;          // operand width in bits
+        automatic bit use_cl = ex_opcode[1];           // /2 variant
+        automatic bit use_imm = ~ex_opcode[4];         // C0-C1
         logic  [7:0] cnt_raw;
-        logic        new_cf = reg_f[0];
-        logic        new_of = reg_f[11];
-        logic        new_af = reg_f[4];
+        automatic logic new_cf = reg_f[0];
+        automatic logic new_of = reg_f[11];
+        automatic logic new_af = reg_f[4];
         
         cnt_raw =   use_cl  ? ex_g_val[4:0] : 
                     use_imm ? ex_imm[4:0]   : 5'd1;
@@ -1551,9 +1588,9 @@ always @(posedge clk) begin
             // ──────────────────────────────────────────────────────────
             // SHL/SAL = 100 or 110   |  SHR = 101   |  SAR = 111
             // ──────────────────────────────────────────────────────────
-            logic [4:0] cnt = shift_cnt(cnt_raw, bits);
-            logic       saturated = cnt_raw > bits;
-            logic [15:0] src  = ex_w ? ex_e_val : {8'h0, ex_e_val[7:0]};
+            automatic logic [4:0] cnt = shift_cnt(cnt_raw, bits);
+            automatic logic saturated = cnt_raw > bits;
+            automatic logic [15:0] src = ex_w ? ex_e_val : {8'h0, ex_e_val[7:0]};
 
             // $display("ex_modrm: %b, cnt_raw: %d, cnt: %d, bits: %d", ex_modrm, cnt_raw, cnt, bits);
             res = src;        // default “no op” when cnt==0
@@ -1615,7 +1652,7 @@ always @(posedge clk) begin
 
         end else begin
             // ROTATES
-            logic [4:0] cnt = rotate_cnt(cnt_raw, bits, ex_modrm[4]);  // extra=1 for RCL/RCR
+            automatic logic [4:0] cnt = rotate_cnt(cnt_raw, bits, ex_modrm[4]);  // extra=1 for RCL/RCR
             if (DEBUG) $display("ROTATE: ex_e_val: %x, cnt_raw: %d, cnt: %d, bits: %d", ex_e_val, cnt_raw, cnt, bits);
             res = ex_e_val;
             if (cnt_raw) unique case (ex_modrm[5:3])
@@ -1630,13 +1667,13 @@ always @(posedge clk) begin
                 new_of = (cnt==1) ? (res[bits-1] ^ res[bits-2]) : reg_f[11];
             end
             3'b010: begin                       // ---------- RCL
-                logic [16:0] rot = rcl_thru_cf(ex_e_val, CF, cnt, ex_w);
+                automatic logic [16:0] rot = rcl_thru_cf(ex_e_val, CF, cnt, ex_w);
                 res    = ex_w ? rot[15:0] : rot[7:0];
                 new_cf = rot[bits];
                 new_of = (cnt==1) ? (res[bits-1] ^ new_cf) : reg_f[11];
             end
             3'b011: begin                       // ---------- RCR
-                logic [16:0] rot = rcr_thru_cf(ex_e_val, CF, cnt, ex_w);
+                automatic logic [16:0] rot = rcr_thru_cf(ex_e_val, CF, cnt, ex_w);
                 res    = ex_w ? rot[15:0] : rot[7:0];
                 new_cf = rot[bits];
                 new_of = (cnt==1) ? (res[bits-1] ^ res[bits-2]) : reg_f[11];
@@ -1667,7 +1704,7 @@ always @(posedge clk) begin
     // 4.  INC / DEC 40-4F, FE.0/1, FF.0/1
     //--------------------------------------------------------------------
     I_INCDEC: begin
-        logic is_dec = ex_opcode[7] ? ex_modrm[3] : ex_opcode[3];
+        automatic logic is_dec = ex_opcode[7] ? ex_modrm[3] : ex_opcode[3];
 
         if (ii.w) begin
             alu_result = is_dec ? ex_e_val - 16'd1 : ex_e_val + 16'd1;
@@ -1706,15 +1743,15 @@ always @(posedge clk) begin
         //----------------------------------------------------------------
         // 1) Identify the variant and gather operands
         //----------------------------------------------------------------
-        logic is_pop      = ex_opcode[6] & ex_opcode[4] & ex_opcode[3] |   // 58 - 5F
+        automatic logic is_pop = ex_opcode[6] & ex_opcode[4] & ex_opcode[3] |   // 58 - 5F
                            ~ex_opcode[6] & ex_opcode[0] |   // 07, 17, 1F
                             ex_opcode[7];                   // 8F
         // stack pointer maths
         // logic is_seg      = ~ex_opcode[6];               // 06/0E/16/1E/07/17/1F
-        logic [2:0] rsel  = ex_opcode[7] ? ex_modrm[2:0]    // 8F: POP r/m16
+        automatic logic [2:0] rsel = ex_opcode[7] ? ex_modrm[2:0]    // 8F: POP r/m16
                                          : ex_opcode[2:0];  // 5?: e_is_op20
-        logic [15:0] sp_before = ex_g_val; 
-        logic [15:0] sp_after  = is_pop ? sp_before + 16'd2
+        automatic logic [15:0] sp_before = ex_g_val; 
+        automatic logic [15:0] sp_after = is_pop ? sp_before + 16'd2
                                         : sp_before - 16'd2;
 
         // ---- source value for PUSH;  destination for POP --------------
@@ -1779,12 +1816,12 @@ always @(posedge clk) begin
         // 1) select MOV source value
         //--------------------------------------------------------
         logic [15:0] mov_src;
-        logic        src_is_seg = 1'b0;
-        logic e_dest_is_reg = (ex_modrm[7:6] == 2'b11);
-        logic e_dest_is_mem = ~e_dest_is_reg;
+        automatic logic src_is_seg = 1'b0;
+        automatic logic e_dest_is_reg = (ex_modrm[7:6] == 2'b11);
+        automatic logic e_dest_is_mem = ~e_dest_is_reg;
 
-        logic is_mov_E_G    = (ex_opcode == 8'h88) || (ex_opcode == 8'h89);  // Gb -> Eb/Ev
-        logic is_mov_E_Seg  = (ex_opcode == 8'h8C);                      // Seg -> Ev        
+        automatic logic is_mov_E_G = (ex_opcode == 8'h88) || (ex_opcode == 8'h89);  // Gb -> Eb/Ev
+        automatic logic is_mov_E_Seg = (ex_opcode == 8'h8C);                      // Seg -> Ev        
 
         unique case (ex_opcode)
         // reg/mem ↔ reg   (88-8B)
@@ -1919,8 +1956,8 @@ always @(posedge clk) begin
         automatic logic is_jmp_short   = (ex_opcode == 8'hEB);
         automatic logic is_jmp_near    = (ex_opcode == 8'hE9);
         automatic logic is_jmp_far     = (ex_opcode == 8'hEA);
-        logic [15:0] target_off = 'X;
-        logic [15:0] target_seg = 'X;
+        automatic logic [15:0] target_off = 'X;
+        automatic logic [15:0] target_seg = 'X;
 
         if (ex_valid) begin
             // 1) Resolve new IP / CS
@@ -1945,11 +1982,11 @@ always @(posedge clk) begin
     // 9. I/O  (IN / OUT)
     //--------------------------------------------------------------------
     I_IO: begin
-        logic       w    = ex_opcode[0];                 // 0 = byte, 1 = word
-        logic       inop = (ex_opcode==8'hE4)||(ex_opcode==8'hE5)||
+        automatic logic w = ex_opcode[0];                 // 0 = byte, 1 = word
+        automatic logic inop = (ex_opcode==8'hE4)||(ex_opcode==8'hE5)||
                            (ex_opcode==8'hEC)||(ex_opcode==8'hED);
 
-        logic [15:0] port = ((ex_opcode==8'hE4)||(ex_opcode==8'hE5)||
+        automatic logic [15:0] port = ((ex_opcode==8'hE4)||(ex_opcode==8'hE5)||
                              (ex_opcode==8'hE6)||(ex_opcode==8'hE7))
                              ? {8'h00,ex_imm[7:0]}          // imm-port
                              : ex_g_val;                    // DX-port
@@ -2045,7 +2082,7 @@ always @(posedge clk) begin
         automatic logic       is_regreg = (ex_opcode[7:4]==4'h9) | (ex_modrm[7:6]==2'b11);
         automatic logic [2:0] reg_g     = (ex_opcode[7:4]==4'h9) ? R_AX           : ex_modrm[5:3];
         automatic logic [2:0] reg_e     = (ex_opcode[7:4]==4'h9) ? ex_opcode[2:0] : ex_modrm[2:0];
-        logic w = ex_opcode[4] ? 1'b1 : ex_w;
+        automatic logic w = ex_opcode[4] ? 1'b1 : ex_w;
 
         // --- port 1 --------------------------
         wb_width         <= w;
