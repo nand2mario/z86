@@ -111,9 +111,11 @@ module divider
             IDLE: begin
                 busy <= 1'b0;
                 if (start) begin
-                    // divide-by-zero?
-                    overflow_next <= (sel32 ? (divs_eff == 16'd0)
-                                            : (divs_eff[7:0] == 8'd0));
+                    // Blocking so this start sees this divisor. A nonblocking
+                    // assign left the previous divide's result, so a real #DE
+                    // made the next divide retire immediately as another #DE.
+                    overflow_next = (sel32 ? (divs_eff == 16'd0)
+                                           : (divs_eff[7:0] == 8'd0));
                     overflow <= overflow_next;
 
                     if (overflow_next) begin
