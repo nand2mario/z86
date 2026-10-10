@@ -377,8 +377,10 @@ always @(posedge clk) begin
             // ---------- AAA 37 ------------------------------------------------
             3'd2: begin
                 if ( (al[3:0] > 4'd9) || af ) begin
-                    al_n = al + 8'h06;
-                    ah_n = ah + 8'h01;
+                    // AL+6 can carry. The 286 adds that carry into AH on top of the +1.
+                    automatic logic aaa_c;
+                    {aaa_c, al_n} = {1'b0, al} + 9'h06;
+                    ah_n = ah + 8'h01 + {7'b0, aaa_c};
                     cf_n = 1'b1;  af_n = 1'b1;
                 end else begin
                     cf_n = 1'b0;  af_n = 1'b0;
@@ -389,8 +391,10 @@ always @(posedge clk) begin
             // ---------- AAS 3F ------------------------------------------------
             3'd3: begin
                 if ( (al[3:0] > 4'd9) || af ) begin
-                    al_n = al - 8'h06;
-                    ah_n = ah - 8'h01;
+                    // Same as AAA: a borrow out of AL-6 decrements AH a second time.
+                    automatic logic aas_b;
+                    {aas_b, al_n} = {1'b0, al} - 9'h06;
+                    ah_n = ah - 8'h01 - {7'b0, aas_b};
                     cf_n = 1'b1;  af_n = 1'b1;
                 end else begin
                     cf_n = 1'b0;  af_n = 1'b0;
