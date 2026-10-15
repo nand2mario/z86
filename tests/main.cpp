@@ -490,6 +490,7 @@ void run_bin_test(std::string &test_file, std::string &result_file, int result_s
 
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
+    tb.nmi = 0;
 
     if (argc < 2) {
         printf("Usage: %s [--no-trace] [--long] <test_file> <start_test_idx> [<end_test_idx>]\n", argv[0]);

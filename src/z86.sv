@@ -26,6 +26,7 @@ module z86 (
 	input               a20_enable,
 
 	//--------------------------------------------------------------------------
+	input               nmi,
 	input               interrupt_do,
 	input   [7:0]       interrupt_vector,
 	output              interrupt_done,
@@ -376,7 +377,7 @@ decode u_decode2 (
     .rd_word            (id_rd_word),
 
     .intr               (interrupt_do), 
-    .nmi                (), 
+    .nmi                (nmi), 
     .pic_vec            (interrupt_vector), 
     .intra              (interrupt_done),
 

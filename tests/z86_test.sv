@@ -4,6 +4,7 @@ module z86_test (
     input         clk_sys,
     input         reset,
     input         cpu_reset,
+    input         nmi,
 
 	input         dbg_mem_wr,
 	input  [19:0] dbg_mem_addr,
@@ -84,6 +85,7 @@ z86 z86 (
 	.avm_readdatavalid (mem_readdatavalid),
 	.avm_readdata      (mem_readdata),
 
+	.nmi               (nmi),
 	.interrupt_do      (interrupt_do),
 	.interrupt_vector  (interrupt_vector),
 	.interrupt_done    (interrupt_done),
