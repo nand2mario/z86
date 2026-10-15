@@ -75,7 +75,7 @@ reg        loading_drop;      // drop the cache request (the buffer is flushed)
 
 reg [3:0]  len;               // instruction length not including prefixes
 reg [6:0]  prefix;
-reg [1:0]  prefix_len;
+reg [3:0]  prefix_len;       // up to 5 prefixes; 2 bits wrapped
 wire       w = buffer[ptr][0];
 reg        is_modrm, is_disp8, is_disp16, is_disp32, is_imm8, is_imm16;
 reg [17:0] regctrl;
@@ -345,7 +345,7 @@ function [1:0] modrm_disp(input [7:0] b);
 endfunction
 
 function is_prefix(input [7:0] b);
-    return b == 8'hF3 || b == 8'hF2 || b == 8'h26 || b == 8'h2E || b == 8'h36 || b == 8'h3E;
+    return b == 8'hF0 || b == 8'hF3 || b == 8'hF2 || b == 8'h26 || b == 8'h2E || b == 8'h36 || b == 8'h3E;
 endfunction
 
 function [3:0] prefix_bit(input [7:0] b);
