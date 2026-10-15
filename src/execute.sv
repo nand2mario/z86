@@ -1720,8 +1720,10 @@ always @(posedge clk) begin
         // ---- source value for PUSH;  destination for POP --------------
         logic [15:0] push_val;
         push_val = ex_e_val; // regs[rsel];
-        if (rsel == R_SP) 
-            push_val = sp_after;
+        if (rsel == R_SP)
+            // 80286 pushes SP *before* the decrement; the 8086/188 pushes the
+            // decremented value. The suite tests for the 286 behaviour.
+            push_val = sp_before;
         if (ex_opcode[7:4] == 4'h6) begin  // 68: PUSH Iw, 6A: PUSH Ib (sign-extended)
             push_val = ex_opcode[1] ? {{8{ex_imm[7]}}, ex_imm[7:0]} : ex_imm;
         end
