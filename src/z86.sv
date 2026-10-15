@@ -15,11 +15,11 @@
 // - nand2mario, 7/2025
 
 module z86 (
-`ifndef VERILATOR
-    input               clk_g,
-`else     
+    // Single clock. Board-level clock generation (PLL/MMCM/BUFG) is deliberately
+    // NOT part of this core: the design used to instantiate an undefined `pll`
+    // module behind `ifndef VERILATOR`, which meant the core could not elaborate
+    // for any synthesis tool. Clocking belongs to the board wrapper.
     input               clk,
-`endif     
     input               reset,
     input               cpu_reset,
 
@@ -83,10 +83,6 @@ module z86 (
 );
 
 import z86_package::*;
-
-`ifndef VERILATOR
-pll u_pll (.clkin(clk_g), .clkout0(clk));
-`endif
 
 // cache interface 
 wire [19:0] ld_addr;
