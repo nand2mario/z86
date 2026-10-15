@@ -116,7 +116,29 @@ wire emit = id_ready & id_valid & ~id_void;
 // inject nmi-based interrupt into the pipeline
 reg nmi_latched, intr_latched;
 reg start_int_service;
-wire int_pipeline_inject = (nmi_latched | intr_latched) & emit;  // inject at an valid instruction boundary
+wire int_pipeline_inject = (nmi_latched | intr_latched | id_invalid) & emit;  // inject at an valid instruction boundary
+
+// Invalid instruction FORMS -> #UD, exception 6.
+//
+// These are operand-form checks, not unknown opcodes: the opcode is valid but
+// this form of it is not, and the 80286 raises #UD. Detection lives here because
+// it is a decode property; the trap reuses the interrupt injection below, with
+// ex_ip_after = ip_this so the FAULTING IP is pushed (286 semantics, matching
+// patch 0015 for divide faults).
+wire id_invalid =
+    // /0-only groups
+    (id_opcode == 8'h8F && id_modrm[5:3] != 3'd0) ||
+    ((id_opcode == 8'hC6 || id_opcode == 8'hC7) && id_modrm[5:3] != 3'd0) ||
+    // memory-operand-only instructions given a register operand
+    (id_opcode == 8'h8D && id_modrm[7:6] == 2'b11) ||                    // LEA
+    ((id_opcode == 8'hC4 || id_opcode == 8'hC5) && id_modrm[7:6] == 2'b11) || // LES/LDS
+    (id_opcode == 8'hFF && id_modrm[7:6] == 2'b11 &&                     // CALL/JMP far
+     (id_modrm[5:3] == 3'd3 || id_modrm[5:3] == 3'd5)) ||
+    // MOV Sw,Ew (8E) / MOV Ew,Sw (8C). CS cannot be *loaded* by MOV (only a
+    // far transfer sets it), and FS/GS do not exist on a 286 -- reg 4/5 are
+    // reserved there. Reading CS with 8C is legal.
+    (id_opcode == 8'h8E && (id_modrm[5:3] == 3'd1 || id_modrm[5:3] >= 3'd4)) ||
+    (id_opcode == 8'h8C && id_modrm[5:3] >= 3'd4);
 
 // recognize simple POP (no ModR/M)
 wire id_pop_r16 = (id_opcode >= 8'h58) && (id_opcode <= 8'h5F);
@@ -592,7 +614,8 @@ always @(posedge clk) begin
         if (int_pipeline_inject) begin
             ex_valid      <= 1'b1;
             ex_opcode     <= 8'hCD;                         // INT Ib
-            ex_imm        <= intr_latched ? pic_vec : 8'd2; // 2 = NMI vector
+            ex_imm        <= id_invalid ? 8'd6 :                  // 6 = #UD
+                             (intr_latched ? pic_vec : 8'd2);  // 2 = NMI vector
             start_int_service <= 1;
             ex_ucode_valid <= 1'b1;
             ex_ip_after <= id_inst.ip_this;  // return to this instruction after interrupt
