@@ -42,7 +42,7 @@ localparam [16:0] I_ARITH   = 17'h00001,
 localparam [2:0]    R_AX = 3'd0, R_CX = 3'd1, R_DX = 3'd2, R_BX = 3'd3, 
                     R_SP = 3'd4, R_BP = 3'd5, R_SI = 3'd6, R_DI = 3'd7;
 
-localparam [15:0] FLAGS_INIT = 16'h0002;
+localparam [15:0] FLAGS_INIT = 16'hF002; // 80286 reset: reserved bits 15:12 and bit 1
 
 reg int_is_nmi;
 

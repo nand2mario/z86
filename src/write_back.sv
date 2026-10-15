@@ -46,7 +46,7 @@ module write_back(
     output reg [15:0] seg_CS /* verilator public */,
     output reg [15:0] seg_SS /* verilator public */,
     output reg [15:0] seg_DS /* verilator public */,
-    output reg [15:0] reg_ip /* verilator public */,
+    output reg [15:0] reg_ip /* verilator public */ = 16'hFFF0,
 
     // debug interface
     input             reg_wr,
@@ -56,8 +56,23 @@ module write_back(
 
 import z86_package::*;
 
-// Segment registers
-logic [15:0] seg_ES_reg, seg_CS_reg, seg_SS_reg, seg_DS_reg;
+// Segment registers.
+//
+// These, and reg_ip below, had no power-on value at all: the always_ff that
+// drives them (further down) has no reset branch, so on real silicon they
+// powered up to whatever the fabric happened to initialise to. IEEE 1800
+// guarantees nothing. Give them the architectural 286 real-mode reset state --
+// CS = F000h, IP = FFF0h, everything else 0 -- so the power-on state is defined
+// and synthesises as an FPGA INIT value. This matches the fetch unit, which
+// already starts at physical FFFF0h (F000:FFF0) via reset_addr.
+//
+// Deliberately a declaration initialiser rather than a reset branch: the
+// testbench holds cpu_reset high while it writes registers through the debug
+// port, so a reset branch on cpu_reset would clobber those writes.
+logic [15:0] seg_ES_reg = 16'h0000,
+             seg_CS_reg = 16'hF000,
+             seg_SS_reg = 16'h0000,
+             seg_DS_reg = 16'h0000;
 
 // Forward register writes to regfile
 always_comb begin
