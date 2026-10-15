@@ -320,27 +320,26 @@ always @(posedge clk)
 // Port 1 – “G” field   (opcode[5:3] or modRM[5:3])
 // Port 2 – “E base”    (EA calculation or register form)
 always_comb begin
-    // G field
-    logic g_active = 0;
+    // Defaults for every output of this block. Verilator still inferred latches
+    // on reg2_raddr and reg_dout even though both had defaults further down, so
+    // they are set unconditionally here instead.
     reg1_raddr = 'x;
+    reg2_raddr = R_BX;
+    reg_dout   = 'x;
+
+    // G field
     if (ii.g_is_reg) begin
         reg1_raddr = ii.w ? id_modrm[5:3] : {1'b0, id_modrm[4:3]};
-        g_active = 1;
     end else if (ii.g_is_sp) begin
         reg1_raddr = R_SP;
-        g_active = 1;
     end else if (ii.g_is_a) begin
         reg1_raddr = R_AX;
-        g_active = 1;
     end else if (ii.g_is_c) begin
         reg1_raddr = R_CX;
-        g_active = 1;
     end else if (ii.g_is_d) begin
         reg1_raddr = R_DX;
-        g_active = 1;
     end else if (ii.g_is_seg) begin    // MOV Ew,Sw
         reg1_raddr = 'x;
-        g_active = 1;
     end
 
     // E field
