@@ -144,6 +144,21 @@ typedef struct packed {
 
 uinstr_t mc_cur;         // current microcode instruction
 
+// POP r/m whose store would start at FFFFh. The pop commits (SP+2) and
+// then #GP runs from that SP. Armed stays set so the hardwired class does
+// not retire or write again while @GP walks the frame.
+reg pop_gp_armed;
+wire pop_mem_gp = ex_valid && !pop_gp_armed && (ex_opcode == 8'h8F) &&
+                  (ex_modrm[7:6] != 2'b11) && (ex_e_addr_val == 16'hFFFF) &&
+                  (~ex_mem_rd | rd_ready) && (~wr_valid | wr_ready) && !br_taken;
+
+always @(posedge clk) begin
+    if (reset || ex_ready)
+        pop_gp_armed <= 1'b0;
+    else if (pop_mem_gp)
+        pop_gp_armed <= 1'b1;
+end
+
 // `ex_valid` and `ex_ready` logic:
 // - Instruction is valid when `ex_valid==1`.
 // - Instruction is also invalidated when `br_taken==1` - last instruction has taken a branch.
@@ -156,13 +171,17 @@ uinstr_t mc_cur;         // current microcode instruction
 always_comb begin
     ex_ready = 1'b0;
     if (ex_valid) begin
-        if (ex_ucode_valid) begin
+        if (ex_ucode_valid || pop_gp_armed) begin
             ex_ready = rd_ready & (~wr_valid | wr_ready) & ~div_busy & mc_cur.stop;
         end else begin
             ex_ready = (~ex_mem_rd | rd_ready) & (~wr_valid | wr_ready);
         end
     end
     if (br_taken) ex_ready = 1'b1;   // immediate finish current instruction is branch taken
+    if (pop_mem_gp)
+        ex_ready = 1'b0;
+    else if (pop_gp_armed)
+        ex_ready = ex_valid & rd_ready & (~wr_valid | wr_ready) & ~div_busy & mc_cur.stop;
 end
 
 // `mc_active` - micro-op is allowed to execute when write-back is ready and memory is ready.
@@ -202,6 +221,8 @@ always_ff @(posedge clk) begin
     logic [8:0] mc_pc_next;
     if (reset) begin
         mc_pc_next = 9'd0;
+    end else if (pop_mem_gp) begin
+        mc_pc_next = UENTRY_GP;
     end else if (mc_active) begin
         if (mc_wait)
             mc_pc_next = mc_pc;
@@ -489,7 +510,7 @@ always_comb begin
     reg2_we = 0;
     reg2_waddr = 'x;
     reg2_wdata = 'x;
-    if (ex_ucode_valid) begin  
+    if (ex_ucode_valid || pop_gp_armed) begin  
         ex_reg = ~mc_cur.stop;      // stop cycle does not use regfile
         reg2_raddr = R_SP;          // reg2 default to SP
         unique case (mc_cur.op)
@@ -589,7 +610,7 @@ always_comb begin
     //------------------------------------------------------------------
     // µ-op execution 
     //------------------------------------------------------------------
-    if (ex_ucode_valid) begin  
+    if (ex_ucode_valid || pop_gp_armed) begin  
         // reg2_raddr = R_SP;
         this_sp = sp_fw_valid ? sp_fw : reg2_rdata;
 
@@ -1227,8 +1248,13 @@ always_ff @(posedge clk) begin
                 sp_fw       <= reg2_rdata;
                 sp_fw_valid <= 1'b1;
             end
-        end else begin                 // leave microcode → drop the shadow    
+        end else if (!pop_gp_armed) begin // leave microcode → drop the shadow
             sp_fw_valid <= 1'b0;
+        end
+        // POP [FFFF] has committed SP+2. The #GP frame is pushed from there.
+        if (pop_mem_gp) begin
+            sp_fw <= ex_g_val + 16'd2;
+            sp_fw_valid <= 1'b1;
         end
     end
 end
@@ -1703,6 +1729,7 @@ always @(posedge clk) begin
     // 5.  PUSH / POP (register & segment forms ‑ single stack access)
     //--------------------------------------------------------------------
     I_PUSHPOP: begin
+        if (!pop_gp_armed) begin
         //----------------------------------------------------------------
         // 1) Identify the variant and gather operands
         //----------------------------------------------------------------
@@ -1733,12 +1760,12 @@ always @(posedge clk) begin
         // 2) Drive register and memory port
         //----------------------------------------------------------------
         if (is_pop) begin
-            if (ii.e_is_m) begin    // POP m (8Fh)
+            if (ii.e_is_m && ex_e_addr_val != 16'hFFFF) begin    // POP m (8Fh)
                 wr_valid <= 1;
                 wr_addr <= ex_e_fulladdr;
                 wr_data <= ex_e_val;
                 wr_word <= 1'b1;
-            end else begin
+            end else if (!ii.e_is_m) begin
                 // memory READ already issued by EXECUTE1 when ex_mem_rd=1
                 // we are now in the cycle rd_busy==0, rd_data is valid
                 if (ii.e_is_seg) begin
@@ -1769,6 +1796,7 @@ always @(posedge clk) begin
         if (DEBUG) $display("PUSH/POP: is_pop=%b, sp_before=%h, sp_after=%h, push_val=%h", is_pop, sp_before, sp_after, push_val);
 
         // flags unchanged
+        end
     end
 
     //--------------------------------------------------------------------
@@ -2169,7 +2197,7 @@ always @(posedge clk) begin
     //------------------------------------------------------------------
     // forward microcode-driven signals
     //------------------------------------------------------------------
-    if (ex_ucode_valid) begin          // Microcode-specific initializations
+    if (ex_ucode_valid || pop_gp_armed) begin          // Microcode-specific initializations
         hw_flags_valid = 1'b0;
         // wr_valid <= 0;
     end

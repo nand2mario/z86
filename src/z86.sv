@@ -188,6 +188,7 @@ wire [15:0] reg2_wdata;
 // other registers
 wire [15:0] reg_f;
 wire [15:0] reg_ip;
+wire [15:0] gpr_sp, gpr_bp;
 wire [15:0] seg_ES;
 wire [15:0] seg_CS;
 wire [15:0] seg_SS;
@@ -267,7 +268,9 @@ regfile u_regfile (
     .wdata1             (reg1_wdata),
     .we2                (reg2_we), 
     .waddr2             (reg2_waddr), 
-    .wdata2             (reg2_wdata)
+    .wdata2             (reg2_wdata),
+    .sp                 (gpr_sp),
+    .bp                 (gpr_bp)
 );
 
 // z86 5-stage pipeline: 
@@ -362,7 +365,9 @@ decode u_decode2 (
     .reg2_rdata         (reg2_rdata),
 
     .reg_f              (reg_f), 
-    .reg_ip             (reg_ip), 
+    .reg_ip             (reg_ip),
+    .gpr_sp             (gpr_sp),
+    .gpr_bp             (gpr_bp),
     .seg_ES             (seg_ES), 
     .seg_CS             (seg_CS), 
     .seg_SS             (seg_SS), 

@@ -66,6 +66,8 @@ module decode (
     input      [15:0] seg_ES,
     input      [15:0] reg_f,
     input      [15:0] reg_ip,
+    input      [15:0] gpr_sp,
+    input      [15:0] gpr_bp,
 
     // memory read interface
     output reg        rd,
@@ -295,8 +297,8 @@ always_comb begin
         endcase
     end
 
-    if (int_pipeline_inject) begin
-        id_ucode_entry = UENTRY_INT_IMM;
+    if (fault_inject) begin
+        id_ucode_entry = (id_gp && !int_pipeline_inject) ? UENTRY_GP : UENTRY_INT_IMM;
         id_ucode_valid = 1'b1;
     end
 
@@ -398,6 +400,26 @@ logic [15:0] ea_base_r;      // buffer EA for 2nd cycle of triple read
 always @(posedge clk) ea_base_r <= ea_base;
 
 logic [15:0] id_e_addr_val;   // e value for next instruction
+
+// #GP for accesses that are not a single data word at FFFFh.
+// A far pointer is two words: FFFFh or FFFDh. FFFEh wraps and is not a fault.
+// LEAVE faults when the pop would use BP=FFFFh, before SP <- BP.
+// POP with SP=FFFFh faults before the pop. PUSHA/POPA fault when one of
+// the eight words would land on FFFFh. ESC reads a word with no W bit.
+wire id_gp_far = emit && ii.e_is_m &&
+    (id_e_addr_val == 16'hFFFD || id_e_addr_val == 16'hFFFF) &&
+    (id_opcode == 8'hC4 || id_opcode == 8'hC5 ||
+     (id_opcode == 8'hFF && (id_modrm[5:3] == 3'd3 || id_modrm[5:3] == 3'd5)));
+wire id_gp_leave = emit && (id_opcode == 8'hC9) && (gpr_bp == 16'hFFFF);
+wire id_gp_pusha = emit && (id_opcode == 8'h60) && gpr_sp[0] && (gpr_sp <= 16'd15);
+wire id_gp_popa  = emit && (id_opcode == 8'h61) && gpr_sp[0] && (gpr_sp >= 16'hFFF1);
+wire id_gp_esc = emit && (id_opcode[7:3] == 5'b11011) && ii.e_is_m &&
+                 (id_e_addr_val == 16'hFFFF);
+wire id_gp_pop = emit && (id_pop_r16 || id_pop_seg || id_pop_rm) &&
+                 (gpr_sp == 16'hFFFF);
+wire id_gp = id_gp_far || id_gp_leave || id_gp_pusha || id_gp_popa ||
+             id_gp_esc || id_gp_pop;
+wire fault_inject = int_pipeline_inject | id_gp;
 
 // G value, E value, effective address calculation
 always_comb begin : ea_calc
@@ -541,7 +563,7 @@ always_comb begin
     //     $display("DECODE: rd=1,rd_addr=%x", rd_addr);
 end
 
-assign rd = id_mem_rd & id_ready & id_valid & ~id_void & rd_ready;
+assign rd = id_mem_rd & id_ready & id_valid & ~id_void & rd_ready & ~id_gp;
 
 // Send signals to EXECUTE
 always @(posedge clk) begin
@@ -589,15 +611,19 @@ always @(posedge clk) begin
                     ex_g_val_next, id_mem_rd, rd_addr);
         end
 
-        if (int_pipeline_inject) begin
-            ex_valid      <= 1'b1;
-            ex_opcode     <= 8'hCD;                         // INT Ib
-            ex_imm        <= intr_latched ? pic_vec : 8'd2; // 2 = NMI vector
-            start_int_service <= 1;
+        if (fault_inject) begin
+            ex_valid       <= 1'b1;
+            ex_mem_rd      <= 1'b0;
             ex_ucode_valid <= 1'b1;
-            ex_ip_after <= id_inst.ip_this;  // return to this instruction after interrupt
-//            is_ext_int       <= 1'b1;      // external interrupt flag
-            int_is_nmi       <= nmi_latched;
+            ex_opcode      <= 8'hCD;
+            if (id_gp && !int_pipeline_inject) begin
+                ex_imm <= 8'd13;
+            end else begin
+                ex_imm <= intr_latched ? pic_vec : 8'd2; // 2 = NMI vector
+                start_int_service <= 1;
+                int_is_nmi <= nmi_latched;
+            end
+            ex_ip_after <= id_inst.ip_this;
         end
 
     end
@@ -652,7 +678,7 @@ always @(posedge clk) begin
                                             ex_iclass <= I_PUSHPOP;
         default:                            ex_iclass <= I_IDLE;
         endcase
-        if (int_pipeline_inject) begin
+        if (fault_inject) begin
             ex_iclass <= I_IDLE;      // executed by microcode
         end
     end
@@ -711,7 +737,7 @@ always_ff @(posedge clk or posedge reset) begin
         end
 
         // 3. pipeline flush (taken branch / INT) -> scoreboard reset
-        if (br_taken | int_pipeline_inject) begin
+        if (br_taken | fault_inject) begin
             sb0_valid <= 1'b0;  sb1_valid <= 1'b0;
             sb0_mask  <= '0;    sb1_mask  <= '0;
         end
@@ -841,7 +867,7 @@ always @(posedge clk) begin
         id_void_r <= 1'b0;
     end else if (id_valid) begin
         if (id_ready)                            id_void_r <= 1'b0;
-        else if (br_taken | int_pipeline_inject) id_void_r <= 1'b1;
+        else if (br_taken | fault_inject) id_void_r <= 1'b1;
     end
 end
 

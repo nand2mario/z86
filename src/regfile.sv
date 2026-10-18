@@ -20,7 +20,10 @@ module regfile (
     input      [15:0]  wdata1,
     input      [1:0]   we2,        // byte enabled write
     input      [2:0]   waddr2,
-    input     [15:0]   wdata2
+    input     [15:0]   wdata2,
+
+    output     [15:0]  sp,
+    output     [15:0]  bp
 );
 
 import z86_package::*;
@@ -34,6 +37,8 @@ wire [15:0] DX /* verilator public */ = regs[R_DX];
 wire [15:0] BX /* verilator public */ = regs[R_BX];
 wire [15:0] SP /* verilator public */ = regs[R_SP];
 wire [15:0] BP /* verilator public */ = regs[R_BP];
+assign sp = SP;
+assign bp = BP;
 wire [15:0] SI /* verilator public */ = regs[R_SI];
 wire [15:0] DI /* verilator public */ = regs[R_DI];
 

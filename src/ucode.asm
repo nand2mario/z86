@@ -626,3 +626,12 @@
     POP      BP
     .end
 
+@GP                          ; #GP, exception 13. Frame is FLAGS, CS, faulting IP.
+    PUSH     FLAGS
+    GETVEC_OFF  13
+    GETVEC_SEG  13
+    PUSH     CS
+    PUSH     IP_THIS
+    BR_FAR   0
+    .end
+
