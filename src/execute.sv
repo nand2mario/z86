@@ -200,6 +200,9 @@ reg [8:0]   mc_pc;
 // Microcode sequencer
 always_ff @(posedge clk) begin
     logic [8:0] mc_pc_next;
+    // Hold while the sequencer is idle. An unassigned value kept the
+    // previous step, so a stall between two PUSHes skipped a micro-op.
+    mc_pc_next = mc_pc;
     if (reset) begin
         mc_pc_next = 9'd0;
     end else if (mc_active) begin
