@@ -309,7 +309,7 @@ end
 wire CF = reg_f[0], PF = reg_f[2], AF = reg_f[4], ZF = reg_f[6], SF = reg_f[7], TF = reg_f[8], IF = reg_f[9], DF = reg_f[10], OF = reg_f[11];
 
 always @(posedge clk) 
-    if (reset) 
+    if (reset || br_taken) 
         cycle_2nd <= 0; 
     else if (id_valid & id_ready)
         cycle_2nd <= 0;
@@ -837,11 +837,13 @@ endfunction
 // ---- Void instruction when branching and INT ──────────────────────────
 
 always @(posedge clk) begin
-    if (reset) begin
+    // A taken branch drops id_valid across the gap, so these flags would
+    // otherwise stay set and change the instruction at the target.
+    if (reset || br_taken) begin
         id_void_r <= 1'b0;
     end else if (id_valid) begin
-        if (id_ready)                            id_void_r <= 1'b0;
-        else if (br_taken | int_pipeline_inject) id_void_r <= 1'b1;
+        if (id_ready)                 id_void_r <= 1'b0;
+        else if (int_pipeline_inject) id_void_r <= 1'b1;
     end
 end
 
