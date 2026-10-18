@@ -1227,7 +1227,15 @@ always_ff @(posedge clk) begin
                 sp_fw       <= reg2_rdata;
                 sp_fw_valid <= 1'b1;
             end
-        end else begin                 // leave microcode → drop the shadow    
+        end else begin                 // leave microcode → drop the shadow
+            sp_fw_valid <= 1'b0;
+        end
+        // Drop a shadow that is still valid when this instruction retires.
+        // Otherwise the next microcoded instruction inherits it.
+        if (ex_valid && ex_ready &&
+            !(mc_active && ~br_taken &&
+              ((mc_reg2_valid && mc_reg2 == R_SP) ||
+               (mc_reg_valid && mc_reg == R_SP)))) begin
             sp_fw_valid <= 1'b0;
         end
     end
