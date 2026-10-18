@@ -738,11 +738,16 @@ function automatic reg_mask_t build_rd_mask();
         if (ii.e_is_op20) m.gpr[ii.w ? id_opcode[2:0] : {1'b0,id_opcode[1:0]}] = 1'b1;
     end
 
+    // F7 /6,/7 DIV/IDIV read DX:AX.
+    if (id_opcode == 8'hF7 && id_modrm[5:4] == 2'b11)
+        m.gpr[R_DX] = 1'b1;
+
     if (ii.e_is_m & ~ii.e_write_only) m.mem = 1'b1;
 
     m.seg = 0;
     if (ii.g_is_seg & ~ii.g_write_only) m.seg[id_modrm[4:3]] = 1'b1;
-    if (ii.e_is_seg & ~ii.e_write_only) m.seg[id_opcode[5:4]] = 1'b1;
+    // PUSH/POP Sw encode the segreg in opcode[4:3] (06=ES .. 1E=DS).
+    if (ii.e_is_seg & ~ii.e_write_only) m.seg[id_opcode[4:3]] = 1'b1;
     if (ii.is_mem_no_stack) m.seg[seg_sel] = 1'b1;
     if (id_opcode >= 8'hA4 && id_opcode <= 8'hA7) begin       // MOVS/CMPS, DS:SI and ES:DI
         m.seg = 4'b1001; 
@@ -808,7 +813,13 @@ function automatic reg_mask_t build_wr_mask();
 
     m.seg = 0;
     if (ii.g_is_seg & ~ii.g_read_only) m.seg[id_modrm[4:3]] = 1'b1;
-    if (ii.e_is_seg & ~ii.e_read_only) m.seg[id_opcode[5:4]] = 1'b1;
+    if (ii.e_is_seg & ~ii.e_read_only) m.seg[id_opcode[4:3]] = 1'b1;
+    // F7 /4../7 write DX:AX. The LUT only marks AX.
+    if (id_opcode == 8'hF7 && id_modrm[5])
+        m.gpr[R_DX] = 1'b1;
+    // LES/LDS write ES/DS in microcode. The LUT only marks the GPR.
+    if (id_opcode == 8'hC4) m.seg[0] = 1'b1;
+    if (id_opcode == 8'hC5) m.seg[3] = 1'b1;
 
     if (id_opcode >= 8'hA4 && id_opcode <= 8'hA7) begin       // MOVS/CMPS, DS:SI and ES:DI
         m.gpr[R_SI] = 1'b1; m.gpr[R_DI] = 1'b1;
