@@ -477,9 +477,9 @@
     ADJ       4 
     JT       1              ; ADJ sets cond if divide-by-0
     .end
+    PUSH  FLAGS              ; before GETVEC, which clears IF and TF
     GETVEC_OFF      0        ; vector 0, division trap
     GETVEC_SEG      0        ; then get segment
-    PUSH  FLAGS
     PUSH  CS
     PUSH  IP_AFTER           
     BR_FAR     0             ; cs:ip ← tmp_hi:tmp_lo

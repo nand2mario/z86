@@ -442,8 +442,14 @@ always @(posedge clk) begin
                           ~^adj_res[7:0],  // PF
                           adj_flags[1],    
                           adj_flags[0]};   // CF
-            if (adj_cond)                  // no register modify on divide-by-0
-                adj_flags <= reg_f;
+            if (adj_cond) begin
+                // AAM 0 raises #DE after rewriting flags. SF and ZF are
+                // clear. PF is the parity of AL[7:1]. OF, CF and AF are
+                // clear. DF and the remaining bits are kept.
+                logic [7:0] pf_src;
+                pf_src = {1'b0, ex_e_addr_val[7:1]};
+                adj_flags <= (reg_f & 16'hF72A) | {13'b0, ~^pf_src, 2'b00};
+            end
         end
 
         default: adj_state <= 0;
